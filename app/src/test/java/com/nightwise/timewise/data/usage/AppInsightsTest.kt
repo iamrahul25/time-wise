@@ -23,6 +23,26 @@ class AppInsightsTest {
     )
 
     @Test
+    fun visitsRankingOrdersByOpensAndIgnoresUntrackedDays() {
+        fun visitDay(epochDay: Long, vararg apps: Triple<String, Long, Int>) = DayUsage(
+            epochDay, apps.sumOf { it.second }, apps.map { AppUsage(it.first, it.second, it.third) }, null, List(24) { 0 }
+        )
+        val days = listOf(
+            visitDay(today - 20, Triple("a", hour, 9)),
+            visitDay(today - 2, Triple("a", hour, 3), Triple("b", 2 * hour, 8), Triple("c", hour, 0)),
+            visitDay(today, Triple("a", hour, 4))
+        )
+        val week = AppInsights.ranking(days, AppPeriod.WEEK, today, AppMetric.VISITS)
+        assertEquals(listOf("b", "a"), week.apps.map { it.packageName })
+        assertEquals(8, week.apps[0].visits)
+        assertEquals(7, week.apps[1].visits)
+        assertEquals(15, week.totalVisits)
+        val all = AppInsights.ranking(days, AppPeriod.ALL, today, AppMetric.VISITS)
+        assertEquals(listOf("a", "b"), all.apps.map { it.packageName })
+        assertEquals(16, all.apps[0].visits)
+    }
+
+    @Test
     fun weeklyAverageUsesFinishedTrackedDaysOnly() {
         val averages = AppInsights.weeklyDailyAverages(history, today)
         assertEquals(hour / 2, averages["insta"])

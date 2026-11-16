@@ -56,6 +56,7 @@ import com.nightwise.timewise.data.profile.UsageProfile
 import com.nightwise.timewise.data.usage.DayUsage
 import com.nightwise.timewise.data.usage.UsageSnapshot
 import com.nightwise.timewise.ui.changeVsPrevious
+import com.nightwise.timewise.ui.components.AppIcon
 import com.nightwise.timewise.ui.components.AppUsageRow
 import com.nightwise.timewise.ui.components.BadgesEntryCard
 import com.nightwise.timewise.ui.components.CategoryUsageCard
@@ -185,6 +186,9 @@ fun HomeScreen(
                 .focusCard()
                 .padding(horizontal = 14.dp, vertical = 16.dp)
         )
+
+        SectionTitle(if (isToday) "Most visited today" else "Most visited that day")
+        MostVisitedAppsCard(day, isToday, onOpenApp)
     }
 }
 
@@ -477,6 +481,55 @@ private fun TopAppsCard(day: DayUsage?, isToday: Boolean, onOpenApp: (String) ->
                     maxMillis = max,
                     onClick = { onOpenApp(app.packageName) }
                 )
+            }
+        }
+    }
+}
+
+/** The day's most opened apps, ranked by visits (times each app was opened). */
+@Composable
+private fun MostVisitedAppsCard(day: DayUsage?, isToday: Boolean, onOpenApp: (String) -> Unit) {
+    val top = day?.apps.orEmpty().filter { it.visits > 0 }.sortedByDescending { it.visits }.take(TOP_APPS)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusCard()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (top.isEmpty()) {
+            Text(
+                text = when {
+                    day == null -> "Loading…"
+                    isToday -> "No app visits recorded yet today."
+                    else -> "No app visits recorded that day. Visits are counted from this update on."
+                },
+                color = Slate,
+                fontSize = 12.sp
+            )
+        } else {
+            top.forEach { app ->
+                val info = rememberAppInfo(app.packageName)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onOpenApp(app.packageName) }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AppIcon(info, size = 28.dp)
+                    Text(
+                        text = info?.label ?: "",
+                        modifier = Modifier.weight(1f),
+                        color = Ink,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(text = "${app.visits} visits", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

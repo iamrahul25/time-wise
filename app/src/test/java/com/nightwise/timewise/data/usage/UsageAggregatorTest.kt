@@ -99,8 +99,15 @@ class UsageAggregatorTest {
     fun appsAreRankedByTime() {
         val sessions = listOf(UsageSession("a", 0, 5 * min), UsageSession("b", 5 * min, 25 * min), UsageSession("a", 30 * min, 32 * min))
         val day = UsageAggregator.summarizeDays(sessions, emptyList(), listOf(0), listOf(0), listOf(hour), true).single()
-        assertEquals(listOf(AppUsage("b", 20 * min), AppUsage("a", 7 * min)), day.apps)
+        assertEquals(listOf(AppUsage("b", 20 * min, 1), AppUsage("a", 7 * min, 2)), day.apps)
         assertEquals(27 * min, day.totalMillis)
+    }
+
+    @Test
+    fun sessionCarriedOverFromYesterdayIsNotANewVisit() {
+        val sessions = listOf(UsageSession("a", -5 * min, 10 * min), UsageSession("a", 20 * min, 30 * min))
+        val day = UsageAggregator.summarizeDays(sessions, emptyList(), listOf(0), listOf(0), listOf(hour), true).single()
+        assertEquals(1, day.apps.single().visits)
     }
 
     @Test

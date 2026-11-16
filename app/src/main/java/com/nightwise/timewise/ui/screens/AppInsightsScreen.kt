@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.nightwise.timewise.data.usage.AppDailyPoint
 import com.nightwise.timewise.data.usage.AppDetail
 import com.nightwise.timewise.data.usage.AppInsights
+import com.nightwise.timewise.data.usage.AppMetric
 import com.nightwise.timewise.data.usage.AppPeriod
 import com.nightwise.timewise.data.usage.AppRanking
 import com.nightwise.timewise.data.usage.AppTotal
@@ -83,8 +84,9 @@ private val Bronze = Color(0xFF9C5221)
 @Composable
 fun AppInsightsScreen(usage: UsageSnapshot?, onOpenApp: (String) -> Unit, onBack: () -> Unit) {
     var period by rememberSaveable { mutableStateOf(AppPeriod.WEEK) }
-    val ranking = remember(usage, period) {
-        usage?.let { AppInsights.ranking(it.history, period, it.today.epochDay) }
+    var metric by rememberSaveable { mutableStateOf(AppMetric.TIME) }
+    val ranking = remember(usage, period, metric) {
+        usage?.let { AppInsights.ranking(it.history, period, it.today.epochDay, metric) }
     }
 
     Column(
@@ -97,6 +99,11 @@ fun AppInsightsScreen(usage: UsageSnapshot?, onOpenApp: (String) -> Unit, onBack
     ) {
         ScreenHeader(title = "App insights", onBack = onBack)
         PeriodToggle(
+            options = AppMetric.entries.map { it.label },
+            selectedIndex = metric.ordinal,
+            onSelect = { metric = AppMetric.entries[it] }
+        )
+        PeriodToggle(
             options = AppPeriod.entries.map { it.label },
             selectedIndex = period.ordinal,
             onSelect = { period = AppPeriod.entries[it] }
@@ -104,7 +111,43 @@ fun AppInsightsScreen(usage: UsageSnapshot?, onOpenApp: (String) -> Unit, onBack
 
         when {
             ranking == null -> Text(text = "Loading…", color = Slate, fontSize = 12.sp)
-            ranking.apps.isEmpty() -> Text(text = "No app usage recorded for this period yet.", color = Slate, fontSize = 13.sp)
+            ranking.apps.isEmpty() -> Text(
+                text = if (metric == AppMetric.VISITS) {
+                    "No app visits recorded for this period yet. Visits are counted from now on, so this fills up as you use your phone."
+                } else {
+                    "No app usage recorded for this period yet."
+                },
+                color = Slate,
+                fontSize = 13.sp
+            )
+            metric == AppMetric.VISITS -> {
+                MostVisitedHero(ranking, onOpenApp)
+                SectionTitle("Most visited apps")
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusCard()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    val max = ranking.apps.first().visits
+                    ranking.apps.take(TOP_APPS).forEachIndexed { index, app ->
+                        RankedVisitRow(
+                            rank = index + 1,
+                            app = app,
+                            maxVisits = max,
+                            onClick = { onOpenApp(app.packageName) }
+                        )
+                    }
+                }
+                Text(
+                    text = "A visit is each time you open an app. Days saved before this update have no visit counts.",
+                    color = Mist,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             else -> {
                 TopWasterHero(ranking, onOpenApp)
                 SectionTitle("Biggest time-wasters")
@@ -188,6 +231,124 @@ private fun TopWasterHero(ranking: AppRanking, onOpenApp: (String) -> Unit) {
             HeroStat("Screen time", formatDuration(ranking.screenTimeMillis), Modifier.weight(1f))
             HeroStat("Apps used", ranking.apps.size.toString(), Modifier.weight(1f))
             HeroStat("Top 3 share", "${(ranking.apps.take(3).sumOf { it.totalMillis } * 100f / ranking.screenTimeMillis.coerceAtLeast(1)).roundToInt()}%", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun MostVisitedHero(ranking: AppRanking, onOpenApp: (String) -> Unit) {
+    val top = ranking.apps.first()
+    val info = rememberAppInfo(top.packageName)
+    val periodLabel = when (ranking.period) {
+        AppPeriod.WEEK -> "this week"
+        AppPeriod.MONTH -> "this month"
+        AppPeriod.ALL -> "so far"
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(WasteGradient)
+            .clickable { onOpenApp(top.packageName) }
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(text = "#1 MOST VISITED ${periodLabel.uppercase()}", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .background(Color.White, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                AppIcon(info, size = 48.dp)
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(text = info?.label ?: "", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = "${top.visits} visits", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        val share = top.visits * 100f / ranking.totalVisits.coerceAtLeast(1)
+        Text(
+            text = "${share.roundToInt()}% of all your app opens $periodLabel.",
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+            HeroStat("Total visits", ranking.totalVisits.toString(), Modifier.weight(1f))
+            HeroStat("Apps opened", ranking.apps.size.toString(), Modifier.weight(1f))
+            HeroStat("Per day", (ranking.totalVisits / ranking.trackedDays.coerceAtLeast(1)).toString(), Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun RankedVisitRow(rank: Int, app: AppTotal, maxVisits: Int, onClick: () -> Unit) {
+    val info = rememberAppInfo(app.packageName)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val medal = when (rank) {
+            1 -> Gold
+            2 -> Silver
+            3 -> Bronze
+            else -> null
+        }
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .background(medal ?: NeutralChip, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = rank.toString(), color = if (medal != null) Color.White else Slate, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+        AppIcon(info, size = 34.dp)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = info?.label ?: "",
+                    modifier = Modifier.weight(1f),
+                    color = Ink,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                app.previousVisits?.let { previous ->
+                    if (previous > 0) {
+                        val (change, trend) = changeVsPrevious(app.visits.toLong(), previous.toLong())
+                        ChangePill(text = change, trend = trend)
+                    }
+                }
+                Text(text = "${app.visits} visits", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(StepperBg)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth((app.visits.toFloat() / maxVisits.coerceAtLeast(1)).coerceIn(0.02f, 1f))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (rank <= 3) Red else Forest)
+                )
+            }
+            Text(
+                text = "${formatDuration(app.totalMillis)} total · ${formatDuration(app.totalMillis / app.visits.coerceAtLeast(1))} per visit",
+                color = Mist,
+                fontSize = 11.sp
+            )
         }
     }
 }

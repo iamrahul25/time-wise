@@ -24,7 +24,8 @@ data class UsageSession(val packageName: String, val start: Long, val end: Long)
     val durationMillis: Long get() = end - start
 }
 
-data class AppUsage(val packageName: String, val millis: Long)
+/** [visits] is how many times the app was opened; 0 when unknown (days saved before it was tracked). */
+data class AppUsage(val packageName: String, val millis: Long, val visits: Int = 0)
 
 data class DayUsage(
     val epochDay: Long,
@@ -123,18 +124,21 @@ object UsageAggregator {
         val start = dayStarts[i]
         val end = dayEnds[i]
         val perApp = mutableMapOf<String, Long>()
+        val visits = mutableMapOf<String, Int>()
         val hourly = LongArray(24)
         for (session in sessions) {
             val s = maxOf(session.start, start)
             val e = minOf(session.end, end)
             if (e <= s) continue
             perApp[session.packageName] = (perApp[session.packageName] ?: 0L) + (e - s)
+            // A session carried over from the day before was opened (and counted) then.
+            if (session.start >= start) visits[session.packageName] = (visits[session.packageName] ?: 0) + 1
             addToHours(hourly, start, s, e)
         }
         DayUsage(
             epochDay = epochDays[i],
             totalMillis = perApp.values.sum(),
-            apps = perApp.map { AppUsage(it.key, it.value) }.sortedByDescending { it.millis },
+            apps = perApp.map { AppUsage(it.key, it.value, visits[it.key] ?: 0) }.sortedByDescending { it.millis },
             unlocks = if (unlocksSupported) countUnlocks(events, start, end) else null,
             hourlyMinutes = hourly.map { (it / 60_000L).toInt() }
         )

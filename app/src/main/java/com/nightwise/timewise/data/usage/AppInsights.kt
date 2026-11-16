@@ -6,23 +6,34 @@ enum class AppPeriod(val label: String, /** Null means all saved history. */ val
     ALL("All time", null)
 }
 
-/** One app's time over a period, with the same-length period before it for a trend. */
+/** What the ranking is ordered by. */
+enum class AppMetric(val label: String) {
+    TIME("Time used"),
+    VISITS("App visits")
+}
+
+/** One app's time and visits over a period, with the same-length period before it for a trend. */
 data class AppTotal(
     val packageName: String,
     val totalMillis: Long,
     /** Days in the period the app was used at all. */
     val activeDays: Int,
     /** Null for [AppPeriod.ALL], which has nothing before it. */
-    val previousMillis: Long?
+    val previousMillis: Long?,
+    /** Times the app was opened. Days saved before visits were tracked count as 0. */
+    val visits: Int = 0,
+    val previousVisits: Int? = null
 )
 
 data class AppRanking(
     val period: AppPeriod,
-    /** Most used first. */
+    val metric: AppMetric = AppMetric.TIME,
+    /** Highest by [metric] first. */
     val apps: List<AppTotal>,
     val screenTimeMillis: Long,
     /** Days in the period with any recorded screen time. */
-    val trackedDays: Int
+    val trackedDays: Int,
+    val totalVisits: Int = 0
 )
 
 data class AppDailyPoint(val epochDay: Long, val millis: Long)
@@ -53,30 +64,42 @@ object AppInsights {
     private const val MONTH = 30
 
     /** Periods end today, so the current day counts as it fills up. */
-    fun ranking(history: List<DayUsage>, period: AppPeriod, today: Long): AppRanking {
+    fun ranking(
+        history: List<DayUsage>,
+        period: AppPeriod,
+        today: Long,
+        metric: AppMetric = AppMetric.TIME
+    ): AppRanking {
         val days = history.filter { it.epochDay <= today }
         val inPeriod = period.days?.let { length -> days.filter { it.epochDay > today - length } } ?: days
         val previous = period.days?.let { length ->
             days.filter { it.epochDay in (today - 2 * length + 1)..(today - length) }
         }
-        val previousByApp = previous?.let(::totalsByApp)
-        val apps = inPeriod.flatMap { day -> day.apps.map { day.epochDay to it } }
+        val previousByApp = previous?.let { prev -> prev.flatMap { it.apps }.groupBy { it.packageName } }
+        val all = inPeriod.flatMap { day -> day.apps.map { day.epochDay to it } }
             .groupBy({ it.second.packageName }, { it })
             .map { (pkg, uses) ->
                 AppTotal(
                     packageName = pkg,
                     totalMillis = uses.sumOf { it.second.millis },
                     activeDays = uses.filter { it.second.millis > 0 }.map { it.first }.distinct().size,
-                    previousMillis = previousByApp?.let { it[pkg] ?: 0L }
+                    previousMillis = previousByApp?.let { p -> p[pkg].orEmpty().sumOf { it.millis } },
+                    visits = uses.sumOf { it.second.visits },
+                    previousVisits = previousByApp?.let { p -> p[pkg].orEmpty().sumOf { it.visits } }
                 )
             }
-            .filter { it.totalMillis > 0 }
-            .sortedByDescending { it.totalMillis }
+        val apps = when (metric) {
+            AppMetric.TIME -> all.filter { it.totalMillis > 0 }.sortedByDescending { it.totalMillis }
+            AppMetric.VISITS -> all.filter { it.visits > 0 }
+                .sortedWith(compareByDescending<AppTotal> { it.visits }.thenByDescending { it.totalMillis })
+        }
         return AppRanking(
             period = period,
+            metric = metric,
             apps = apps,
             screenTimeMillis = inPeriod.sumOf { it.totalMillis },
-            trackedDays = inPeriod.count { it.totalMillis > 0 }
+            trackedDays = inPeriod.count { it.totalMillis > 0 },
+            totalVisits = all.sumOf { it.visits }
         )
     }
 

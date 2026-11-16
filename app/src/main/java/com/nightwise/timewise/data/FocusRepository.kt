@@ -70,8 +70,11 @@ class FocusRepository private constructor(context: Context) {
             .split(',')
             .mapNotNull { entry ->
                 val pkg = entry.substringBefore('=', "")
-                val millis = entry.substringAfter('=', "").toLongOrNull()
-                if (pkg.isEmpty() || millis == null) null else AppUsage(pkg, millis)
+                // "millis" or "millis:visits"; days saved before visits were tracked have no suffix.
+                val value = entry.substringAfter('=', "")
+                val millis = value.substringBefore(':').toLongOrNull()
+                val visits = value.substringAfter(':', "").toIntOrNull() ?: 0
+                if (pkg.isEmpty() || millis == null) null else AppUsage(pkg, millis, visits)
             }
         return StoredDay(total, unlocks.takeIf { it >= 0 }, apps)
     }
@@ -83,7 +86,7 @@ class FocusRepository private constructor(context: Context) {
             putInt(dayKey(epochDay, "unlocks"), day.unlocks ?: -1)
             putString(
                 dayKey(epochDay, "apps"),
-                day.topApps.take(STORED_APPS_PER_DAY).joinToString(",") { "${it.packageName}=${it.millis}" }
+                day.topApps.take(STORED_APPS_PER_DAY).joinToString(",") { "${it.packageName}=${it.millis}:${it.visits}" }
             )
         }
     }
