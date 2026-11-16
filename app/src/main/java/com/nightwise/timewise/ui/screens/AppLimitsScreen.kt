@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Accessibility
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -224,6 +226,9 @@ fun AppLimitPickerScreen(
     var query by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<String?>(null) }
     var weekAverage by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    // Switching metric reorders the list; start from the top so the highest app is visible.
+    LaunchedEffect(weekAverage) { listState.scrollToItem(0) }
     val usedByApp = remember(todayApps) { todayApps.associate { it.packageName to it.millis } }
     val shown = if (weekAverage) dailyAverages else usedByApp
     val apps = remember(installed, shown, query) {
@@ -266,6 +271,7 @@ fun AppLimitPickerScreen(
                 .fillMaxWidth()
                 .padding(bottom = 16.dp)
                 .focusCard(),
+            state = listState,
             contentPadding = PaddingValues(vertical = 6.dp)
         ) {
             items(apps, key = { it.first }) { (pkg, _) ->

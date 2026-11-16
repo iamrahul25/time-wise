@@ -43,6 +43,19 @@ import com.nightwise.timewise.R
 import com.nightwise.timewise.data.FocusRepository
 import com.nightwise.timewise.data.challenge.ChallengeResult
 import com.nightwise.timewise.data.report.PeriodReport
+import com.nightwise.timewise.data.report.TimelinePeriod
+import com.nightwise.timewise.data.report.TimelineRow
+import com.nightwise.timewise.data.report.UsageTimeline
+import com.nightwise.timewise.data.usage.DayUsage
+import com.nightwise.timewise.ui.components.Trend
+import com.nightwise.timewise.ui.theme.CardBorder
+import com.nightwise.timewise.ui.theme.Forest
+import androidx.compose.ui.graphics.Color
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import com.nightwise.timewise.data.report.ReportBuilder
 import com.nightwise.timewise.data.report.ReportPeriod
 import com.nightwise.timewise.data.usage.AppInfoCache
@@ -100,6 +113,7 @@ fun ReportsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             ScreenHeader(title = "Reports", onBack = onBack)
+            usage?.let { UsageTimelineCard(history = it.history, today = FocusRepository.currentEpochDay()) }
             PeriodToggle(selected = period, onSelect = { period = it })
 
             when {
@@ -139,6 +153,152 @@ fun ReportsScreen(
         )
     }
 }
+
+/**
+ * Daily, weekly or monthly rows: total screen time and unlocks, each with its change from the
+ * period before. Colours and trend pills come from the app theme.
+ */
+@Composable
+private fun UsageTimelineCard(history: List<DayUsage>, today: Long) {
+    var period by rememberSaveable { mutableStateOf(TimelinePeriod.DAILY) }
+    val rows = remember(history, today, period) { UsageTimeline.rows(period, history, today) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(text = "Usage timeline", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        TimelineToggle(selected = period, onSelect = { period = it })
+        if (rows.isEmpty()) {
+            Text(text = "No usage recorded for this period yet.", color = Slate, fontSize = 12.sp)
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusCard()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                rows.forEachIndexed { index, row ->
+                    TimelineRowItem(period, row)
+                    if (index < rows.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 56.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(CardBorder)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineToggle(selected: TimelinePeriod, onSelect: (TimelinePeriod) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(NeutralChip)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        TimelinePeriod.entries.forEach { period ->
+            val isSelected = period == selected
+            Text(
+                text = when (period) {
+                    TimelinePeriod.DAILY -> "Daily"
+                    TimelinePeriod.WEEKLY -> "Weekly"
+                    TimelinePeriod.MONTHLY -> "Monthly"
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (isSelected) CardWhite else NeutralChip)
+                    .clickable { onSelect(period) }
+                    .padding(vertical = 7.dp),
+                color = if (isSelected) Ink else Slate,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineRowItem(period: TimelinePeriod, row: TimelineRow) {
+    val (badgeTop, badgeBottom) = when (period) {
+        TimelinePeriod.DAILY -> epochLabel(row.firstDay, "dd") to epochLabel(row.firstDay, "MMM")
+        TimelinePeriod.WEEKLY -> "W${weekOfYear(row.lastDay)}" to epochLabel(row.lastDay, "MMM")
+        TimelinePeriod.MONTHLY -> epochLabel(row.firstDay, "MMM") to epochLabel(row.firstDay, "yyyy")
+    }
+    val title = when (period) {
+        TimelinePeriod.DAILY -> relativeDayLabel(row.firstDay)
+        TimelinePeriod.WEEKLY -> dateRangeLabel(row.firstDay, row.lastDay)
+        TimelinePeriod.MONTHLY -> epochLabel(row.firstDay, "MMMM yyyy")
+    }
+    val previous = row.previous
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Forest),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(text = badgeTop, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(text = badgeBottom, color = Color.White.copy(alpha = 0.8f), fontSize = 9.sp, maxLines = 1)
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text = title, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            TimelineMetric(
+                label = "Usage",
+                value = formatDuration(row.totals.totalMillis),
+                change = previous?.let { changeVsPrevious(row.totals.totalMillis, it.totalMillis) }
+            )
+            TimelineMetric(
+                label = "Unlocks",
+                value = row.totals.unlocks?.toString() ?: "—",
+                change = if (row.totals.unlocks != null && previous?.unlocks != null) {
+                    changeVsPrevious(row.totals.unlocks.toLong(), previous.unlocks.toLong())
+                } else {
+                    null
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineMetric(label: String, value: String, change: Pair<String, Trend>?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, color = Slate, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text = value, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            change?.let { (text, trend) -> ChangePill(text = text, trend = trend) }
+        }
+    }
+}
+
+/** Epoch days are whole calendar days, so they are formatted in UTC. */
+private fun epochLabel(epochDay: Long, pattern: String): String =
+    SimpleDateFormat(pattern, Locale.getDefault()).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        .format(Date(epochDay * 24L * 60 * 60 * 1000))
+
+private fun weekOfYear(epochDay: Long): Int =
+    Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+        timeInMillis = epochDay * 24L * 60 * 60 * 1000
+    }.get(Calendar.WEEK_OF_YEAR)
 
 @Composable
 private fun PeriodToggle(selected: ReportPeriod, onSelect: (ReportPeriod) -> Unit) {
