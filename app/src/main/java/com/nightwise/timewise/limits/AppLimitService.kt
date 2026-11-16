@@ -15,6 +15,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.nightwise.timewise.challenge.ChallengeOverlay
 import com.nightwise.timewise.data.FocusRepository
+import com.nightwise.timewise.data.FocusSettings
+import com.nightwise.timewise.data.bedtime.BedtimeInsights
+import com.nightwise.timewise.data.bedtime.BedtimeLog
 import com.nightwise.timewise.data.limits.AppLimitRepository
 import com.nightwise.timewise.data.limits.LimitLogic
 import com.nightwise.timewise.data.usage.AppInfoCache
@@ -49,6 +52,8 @@ class AppLimitService : AccessibilityService() {
     private var lastEventAt = 0L
     private var pendingCheck: ScheduledFuture<*>? = null
     private val warned = mutableSetOf<String>()
+    /** The last night written to the bedtime log, so it isn't written again every few seconds. */
+    private var lastFocusNight = Long.MIN_VALUE
 
     private val refresh = Runnable { executor.execute { refreshForeground() } }
 
@@ -149,12 +154,13 @@ class AppLimitService : AccessibilityService() {
 
     /** Returns how long until the next check. */
     private fun enforceForeground(): Long {
-        val pkg = foreground ?: return UNLIMITED_CHECK_MS
-        if (pkg == packageName) return UNLIMITED_CHECK_MS
         val now = System.currentTimeMillis()
-
         val focus = FocusRepository.get(this)
         val settings = focus.settings.value
+        noteFocusNight(settings, now)
+
+        val pkg = foreground ?: return UNLIMITED_CHECK_MS
+        if (pkg == packageName) return UNLIMITED_CHECK_MS
         // Bedtime focus blocks the app outright; finishing the steps buys a short grant that runs out again.
         val bedtimeGrantLeft = if (settings.bedtimeFocusEnabled && pkg in settings.bedtimeFocusApps && settings.isBedtime(now)) {
             (focus.bedtimeGrantUntil(pkg) - now).coerceAtLeast(0L)
@@ -169,6 +175,15 @@ class AppLimitService : AccessibilityService() {
 
         val limitDelay = limitDelay(pkg, now)
         return listOfNotNull(limitDelay, grantDelay).minOrNull() ?: UNLIMITED_CHECK_MS
+    }
+
+    /** Writes down each night bedtime focus was on and blocking, for the Vault Door badge. */
+    private fun noteFocusNight(settings: FocusSettings, now: Long) {
+        if (!settings.bedtimeFocusEnabled || settings.bedtimeFocusApps.isEmpty() || !settings.isBedtime(now)) return
+        val night = BedtimeInsights.nightDay(now)
+        if (night == lastFocusNight) return
+        BedtimeLog.get(this).markFocusNight(night)
+        lastFocusNight = night
     }
 
     /** Daily limit check for [pkg]; null when the app has no limit or limits are off. */

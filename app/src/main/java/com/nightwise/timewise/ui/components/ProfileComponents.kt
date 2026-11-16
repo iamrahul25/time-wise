@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoodBad
 import androidx.compose.material.icons.rounded.Phishing
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.SelfImprovement
@@ -47,6 +48,7 @@ fun profileStyle(profile: UsageProfile): ProfileStyle = when (profile) {
     UsageProfile.HOOKED -> ProfileStyle(Color(0xFFFB923C), Color(0xFFC2410C), Color(0xFFFFEDD5), Color(0xFFC2410C))
     UsageProfile.ADDICT -> ProfileStyle(Color(0xFFF26B5B), Color(0xFF991B1B), Color(0xFFFDECEC), Color(0xFFB42318))
     UsageProfile.ZOMBIE -> ProfileStyle(Color(0xFF7F1D1D), Color(0xFF1C0A0A), Color(0xFFF3E4E4), Color(0xFF7F1D1D))
+    UsageProfile.BRAINDEAD -> ProfileStyle(Color(0xFF3B3B4F), Color(0xFF0B0B12), Color(0xFFE6E6EE), Color(0xFF1F1F2E))
 }
 
 /** Background gradient and readable text color for a big card tinted by a usage level. */
@@ -58,6 +60,7 @@ fun levelCardColors(profile: UsageProfile): LevelCardColors = when (profile) {
     UsageProfile.HOOKED -> LevelCardColors(Brush.linearGradient(listOf(Color(0xFFF97316), Color(0xFFC2410C))), Color.White)
     UsageProfile.ADDICT -> LevelCardColors(Brush.linearGradient(listOf(Color(0xFFDC2626), Color(0xFF991B1B))), Color.White)
     UsageProfile.ZOMBIE -> LevelCardColors(Brush.linearGradient(listOf(Color(0xFF7F1D1D), Color(0xFF3B0A0A))), Color.White)
+    UsageProfile.BRAINDEAD -> LevelCardColors(Brush.linearGradient(listOf(Color(0xFF3B3B4F), Color(0xFF0B0B12))), Color.White)
 }
 
 fun profileIcon(profile: UsageProfile): ImageVector = when (profile) {
@@ -66,6 +69,7 @@ fun profileIcon(profile: UsageProfile): ImageVector = when (profile) {
     UsageProfile.HOOKED -> Icons.Rounded.Phishing
     UsageProfile.ADDICT -> Icons.Rounded.Smartphone
     UsageProfile.ZOMBIE -> Icons.Rounded.SentimentVeryDissatisfied
+    UsageProfile.BRAINDEAD -> Icons.Rounded.MoodBad
 }
 
 /** Round level avatar; grey placeholder while the level is unknown. */

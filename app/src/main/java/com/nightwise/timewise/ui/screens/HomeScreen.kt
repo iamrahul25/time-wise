@@ -84,7 +84,8 @@ private const val TOP_APPS = 5
 /** Sentinel for "no day picked", which means today. */
 private const val NO_DAY_SELECTED = Long.MIN_VALUE
 /** The usage meter runs from 0 to 10 hours, two hours per level. */
-private const val METER_MAX_MS = 10 * 60 * 60 * 1000L
+/** Six level bands of 2 hours each, so the marker lines up with the bands. */
+private const val METER_MAX_MS = 12 * 60 * 60 * 1000L
 
 @Composable
 fun HomeScreen(
@@ -341,7 +342,7 @@ private fun LevelChip(level: UsageProfile) {
     }
 }
 
-/** Thin 0–10h meter split into the five levels, with a marker at today's total. */
+/** Thin 0–12h meter split into the six levels, with a marker at today's total. */
 @Composable
 private fun UsageMeter(todayMillis: Long, level: UsageProfile, isToday: Boolean, modifier: Modifier = Modifier) {
     val fraction = (todayMillis.toFloat() / METER_MAX_MS).coerceIn(0f, 1f)
@@ -380,7 +381,7 @@ private fun UsageMeter(todayMillis: Long, level: UsageProfile, isToday: Boolean,
         Text(
             text = when {
                 !isToday -> "Finished the day as ${level.title}"
-                next == null -> "Past 8 hours today"
+                next == null -> "Past ${level.minDailyMillis / (60 * 60 * 1000L)} hours today"
                 else -> "${formatDuration(level.maxDailyMillis - todayMillis)} left before ${next.title}"
             },
             color = Color.White.copy(alpha = 0.7f),

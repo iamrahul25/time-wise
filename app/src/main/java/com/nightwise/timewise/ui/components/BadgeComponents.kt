@@ -20,16 +20,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.TrendingDown
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.AllInclusive
 import androidx.compose.material.icons.rounded.Balance
+import androidx.compose.material.icons.rounded.BatteryAlert
+import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Bloodtype
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cyclone
 import androidx.compose.material.icons.rounded.Dangerous
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Diamond
 import androidx.compose.material.icons.rounded.DoNotTouch
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.EventAvailable
+import androidx.compose.material.icons.rounded.Handshake
+import androidx.compose.material.icons.rounded.HeartBroken
 import androidx.compose.material.icons.rounded.Hiking
 import androidx.compose.material.icons.rounded.HourglassBottom
 import androidx.compose.material.icons.rounded.Link
@@ -37,11 +44,14 @@ import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.MilitaryTech
+import androidx.compose.material.icons.rounded.NightlightRound
 import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.PlusOne
 import androidx.compose.material.icons.rounded.SelfImprovement
 import androidx.compose.material.icons.rounded.SentimentVeryDissatisfied
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Snooze
 import androidx.compose.material.icons.rounded.Spa
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Verified
@@ -118,6 +128,21 @@ fun badgeIcon(badge: UsageBadge): ImageVector = when (badge) {
     UsageBadge.DOOM_SPIRAL -> Icons.Rounded.Cyclone
     UsageBadge.LOST_WEEK -> Icons.Rounded.HourglassBottom
     UsageBadge.DIGITAL_PRISONER -> Icons.Rounded.Dangerous
+    UsageBadge.GOOD_NIGHT -> Icons.Rounded.NightsStay
+    UsageBadge.PROMISE_KEPT -> Icons.Rounded.Handshake
+    UsageBadge.WELL_RESTED -> Icons.Rounded.Bedtime
+    UsageBadge.CLOCKWORK -> Icons.Rounded.Alarm
+    UsageBadge.FULLY_CHARGED -> Icons.Rounded.BatteryChargingFull
+    UsageBadge.VAULT_DOOR -> Icons.Rounded.Lock
+    UsageBadge.JUST_ONE_MORE -> Icons.Rounded.PlusOne
+    UsageBadge.SLEEP_DEBT -> Icons.Rounded.BatteryAlert
+    UsageBadge.SNOOZE_SCROLLER -> Icons.Rounded.Snooze
+    UsageBadge.NIGHT_RAIDER -> Icons.Rounded.NightlightRound
+    UsageBadge.BYPASS_ARTIST -> Icons.Rounded.LockOpen
+    UsageBadge.BROKEN_PROMISE -> Icons.Rounded.HeartBroken
+    UsageBadge.BAT_WEEK -> Icons.Rounded.DarkMode
+    UsageBadge.VAMPIRE_HABIT -> Icons.Rounded.Bloodtype
+    UsageBadge.GHOST_WEEK -> Icons.Rounded.VisibilityOff
 }
 
 /**

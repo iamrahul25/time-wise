@@ -65,8 +65,8 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.roundToInt
 
-/** The gauge runs from 0 to 10 hours a day; anything beyond sits at the end. */
-private const val GAUGE_MAX_HOURS = 10f
+/** The gauge runs from 0 to 12 hours a day, so the top level gets a 2-hour share; anything beyond sits at the end. */
+private const val GAUGE_MAX_HOURS = 12f
 private const val HOUR_MS = 60 * 60 * 1000L
 private const val DAY_MS = 24 * HOUR_MS
 
@@ -505,7 +505,7 @@ private fun LevelLadder(current: UsageProfile) {
     }
 }
 
-/** Each level's share of the 0–10 hour gauge. */
+/** Each level's share of the 0–12 hour gauge. */
 private fun gaugeWeight(level: UsageProfile): Float {
     val max = minOf(level.maxDailyMillis, (GAUGE_MAX_HOURS * HOUR_MS).toLong())
     return (max - level.minDailyMillis).toFloat() / HOUR_MS

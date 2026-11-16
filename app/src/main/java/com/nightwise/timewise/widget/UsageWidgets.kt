@@ -59,7 +59,8 @@ object UsageWidgets {
     private const val ACTION_REFRESH = "com.nightwise.timewise.action.REFRESH_WIDGETS"
     private const val REQUEST_CODE = 7004
     /** Same 0–10h scale as the meter on the home screen. */
-    private const val METER_MAX_MS = 10 * 60 * 60 * 1000L
+    /** Six level bands of 2 hours each, so the marker lines up with the bands. */
+    private const val METER_MAX_MS = 12 * 60 * 60 * 1000L
     private const val CACHE_MS = 5_000L
     private const val TOP_APPS = 3
 
@@ -239,7 +240,7 @@ object UsageWidgets {
         val next = UsageProfile.entries.getOrNull(level.ordinal + 1)
         views.setTextViewText(
             R.id.widget_caption,
-            if (next == null) "Past 8 hours today"
+            if (next == null) "Past ${level.minDailyMillis / (60 * 60 * 1000L)} hours today"
             else "${formatDuration(level.maxDailyMillis - data.todayMillis)} left before ${next.title}"
         )
 
@@ -250,7 +251,7 @@ object UsageWidgets {
         views.setImageViewBitmap(R.id.widget_meter, meterBitmap(context, meterWidthDp, data.todayMillis, level))
     }
 
-    /** Five level bands with a marker at today's total, matching the in-app meter. */
+    /** Six level bands with a marker at today's total, matching the in-app meter. */
     private fun meterBitmap(context: Context, widthDp: Int, todayMillis: Long, level: UsageProfile): Bitmap {
         val d = context.resources.displayMetrics.density
         val w = widthDp * d

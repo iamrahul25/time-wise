@@ -10,7 +10,8 @@ enum class UsageProfile(val title: String, val tagline: String, val maxDailyMill
     MINDFUL("Mindful", "Mostly in control. Trim a little more and you'll reach Monk.", 4 * HOUR),
     HOOKED("Hooked", "The hook is in. Your phone decides more of your day than you do.", 6 * HOUR),
     ADDICT("Addict", "Half your waking day vanishes into a screen. This habit can be broken.", 8 * HOUR),
-    ZOMBIE("Zombie", "Your phone is living your life for you. Put it down and take it back.", Long.MAX_VALUE);
+    ZOMBIE("Zombie", "Your phone is living your life for you. Put it down and take it back.", 10 * HOUR),
+    BRAINDEAD("Braindead", "Nothing left but the feed. Put the phone down and wake up.", Long.MAX_VALUE);
 
     val minDailyMillis: Long get() = entries.getOrNull(ordinal - 1)?.maxDailyMillis ?: 0L
 

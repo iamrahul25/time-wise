@@ -3,6 +3,9 @@ package com.nightwise.timewise.data.badges
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.nightwise.timewise.data.FocusRepository
+import com.nightwise.timewise.data.bedtime.BedtimeInsights
+import com.nightwise.timewise.data.bedtime.BedtimeLog
 import com.nightwise.timewise.data.usage.UsageSnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +30,8 @@ data class BadgeRecord(
  */
 class BadgeRepository private constructor(context: Context) {
 
+    private val appContext: Context = context.applicationContext
+
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -39,9 +44,14 @@ class BadgeRepository private constructor(context: Context) {
         val today = usage.today.epochDay
         val firstDayOfWeek = Calendar.getInstance().firstDayOfWeek
         val current = _records.value
+        val bedtime = bedtimeInput(usage, firstDayOfWeek)
         val updated = UsageBadge.entries.associateWith { badge ->
             val record = current[badge] ?: BadgeRecord()
-            val found = BadgeEngine.earnedPeriods(badge, usage.history, today, firstDayOfWeek)
+            val found = if (badge.rule is BadgeRule.Bedtime) {
+                BedtimeBadgeEngine.earnedPeriods(badge, bedtime)
+            } else {
+                BadgeEngine.earnedPeriods(badge, usage.history, today, firstDayOfWeek)
+            }
             record.copy(periods = BadgeEngine.merge(badge, record.periods, found))
         }
         if (updated == current) return
@@ -53,6 +63,31 @@ class BadgeRepository private constructor(context: Context) {
             }
         }
         _records.value = updated
+    }
+
+    /**
+     * What the bedtime badges need. Phone time after bedtime is written to the [BedtimeLog] first, because
+     * Android drops events older than about 10 days and weekly badges read from the log.
+     */
+    private fun bedtimeInput(usage: UsageSnapshot, firstDayOfWeek: Int): BedtimeBadgeInput {
+        val settings = FocusRepository.get(appContext).settings.value
+        val log = BedtimeLog.get(appContext)
+        log.saveAfterBedtime(
+            BedtimeInsights.afterBedtimeByNight(
+                sessions = usage.sessions,
+                bedtimeMinutes = settings.bedtimeMinutes,
+                today = usage.today.epochDay,
+                now = System.currentTimeMillis(),
+                exclude = setOf(appContext.packageName)
+            )
+        )
+        return BedtimeBadgeInput(
+            nights = usage.sleepLog.map { BedtimeNight(BedtimeInsights.nightDay(it.phoneDownAt), it.phoneDownAt, it.pickedUpAt) },
+            bedtimeMinutes = settings.bedtimeMinutes,
+            sleepGoalMinutes = settings.sleepGoalMinutes,
+            events = log.events(),
+            firstDayOfWeek = firstDayOfWeek
+        )
     }
 
     @Synchronized

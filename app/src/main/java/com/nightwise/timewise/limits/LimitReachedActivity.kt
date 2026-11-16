@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.nightwise.timewise.data.FocusRepository
+import com.nightwise.timewise.data.bedtime.BedtimeLog
 import com.nightwise.timewise.data.friction.FrictionRepository
 import com.nightwise.timewise.data.limits.AppLimitRepository
 import com.nightwise.timewise.data.limits.LimitLogic
@@ -86,8 +87,9 @@ class LimitReachedActivity : ComponentActivity() {
     private fun grantExtra() {
         val pkg = blockedPackage
         if (bedtime) {
-            val until = System.currentTimeMillis() + LimitLogic.EXTRA_MINUTES * 60_000L
-            FocusRepository.get(this).grantBedtimeTime(pkg, until)
+            val now = System.currentTimeMillis()
+            FocusRepository.get(this).grantBedtimeTime(pkg, now + LimitLogic.EXTRA_MINUTES * 60_000L)
+            BedtimeLog.get(this).recordUnlock(now)
         } else {
             AppLimitRepository.get(this).grantExtra(pkg, FocusRepository.currentEpochDay())
         }
@@ -99,6 +101,8 @@ class LimitReachedActivity : ComponentActivity() {
     }
 
     private fun goHome() {
+        // Closing a blocked app at bedtime instead of going through the steps keeps the promise.
+        if (bedtime) BedtimeLog.get(this).recordKept()
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { startActivity(home) }
         finish()

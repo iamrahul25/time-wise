@@ -384,7 +384,7 @@ private fun TimeWiseApp(
 
                             Tab.Bedtime -> BedtimeScreen(
                                 settings = settings,
-                                sleepLog = usage?.sleepLog?.take(7),
+                                usage = usage,
                                 notificationsGranted = permissions.notifications,
                                 usageAccessGranted = permissions.usageAccess,
                                 accessibilityEnabled = permissions.accessibility,

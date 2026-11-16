@@ -20,7 +20,9 @@ data class UsageSnapshot(
      */
     val history: List<DayUsage>,
     /** Most recent night first. */
-    val sleepLog: List<SleepEntry>
+    val sleepLog: List<SleepEntry>,
+    /** Every foreground session rebuilt from the last [ScreenTimeRepository.HISTORY_DAYS] days of events. */
+    val sessions: List<UsageSession> = emptyList()
 ) {
     val today: DayUsage get() = days.last()
     val yesterday: DayUsage get() = days[days.lastIndex - 1]
@@ -55,7 +57,7 @@ class ScreenTimeRepository(private val context: Context) {
         val days = computed.map { day -> mergeWithStore(day, today) }
         val sleepLog = if (unlocksSupported) sleepLog(events, today, now) else emptyList()
         store.pruneOldDays(today)
-        return UsageSnapshot(days, savedHistory(epochDays.first()) + days, sleepLog)
+        return UsageSnapshot(days, savedHistory(epochDays.first()) + days, sleepLog, sessions)
     }
 
     /** Saved summaries for the long-history days before [firstDetailedDay]. */

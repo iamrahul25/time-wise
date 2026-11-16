@@ -20,7 +20,9 @@ class ProfileLogicTest {
         assertEquals(UsageProfile.HOOKED, ProfileLogic.profileFor(5 * hour))
         assertEquals(UsageProfile.ADDICT, ProfileLogic.profileFor(7 * hour))
         assertEquals(UsageProfile.ZOMBIE, ProfileLogic.profileFor(8 * hour))
-        assertEquals(UsageProfile.ZOMBIE, ProfileLogic.profileFor(20 * hour))
+        assertEquals(UsageProfile.ZOMBIE, ProfileLogic.profileFor(10 * hour - 1))
+        assertEquals(UsageProfile.BRAINDEAD, ProfileLogic.profileFor(10 * hour))
+        assertEquals(UsageProfile.BRAINDEAD, ProfileLogic.profileFor(20 * hour))
     }
 
     @Test

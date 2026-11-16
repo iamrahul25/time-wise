@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,9 +33,11 @@ import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,11 +53,17 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.nightwise.timewise.data.FocusSettings
 import com.nightwise.timewise.data.SleepEntry
+import com.nightwise.timewise.data.bedtime.BedtimeInsights
+import com.nightwise.timewise.data.bedtime.BedtimeLog
+import com.nightwise.timewise.data.bedtime.BedtimeWindows
+import com.nightwise.timewise.data.usage.UsageSnapshot
+import com.nightwise.timewise.ui.components.BedtimeAppDialog
 import com.nightwise.timewise.ui.components.AppIcon
 import com.nightwise.timewise.ui.components.FocusTextField
 import com.nightwise.timewise.ui.components.FocusToggle
 import com.nightwise.timewise.ui.components.IconTile
 import com.nightwise.timewise.ui.components.ScreenHeader
+import com.nightwise.timewise.ui.components.SegmentedToggle
 import com.nightwise.timewise.ui.components.SectionTitle
 import com.nightwise.timewise.ui.components.SmallActionButton
 import com.nightwise.timewise.ui.components.UsageAccessCard
@@ -88,7 +97,7 @@ private val REMINDER_LEADS = listOf(0, 15, 30)
 @Composable
 fun BedtimeScreen(
     settings: FocusSettings,
-    sleepLog: List<SleepEntry>?,
+    usage: UsageSnapshot?,
     notificationsGranted: Boolean,
     usageAccessGranted: Boolean,
     accessibilityEnabled: Boolean,
@@ -100,6 +109,24 @@ fun BedtimeScreen(
     val context = LocalContext.current
     val bypassGate = rememberBypassGate()
     var showAppPicker by remember { mutableStateOf(false) }
+    /** Set when the picker was opened by the toggle, so saving apps also turns bedtime focus on. */
+    var pickerTurnsOn by remember { mutableStateOf(false) }
+    /** The app whose block dialog is open, from the picker or from the insights. */
+    var dialogApp by remember { mutableStateOf<String?>(null) }
+
+    val sleepLog = usage?.sleepLog
+    val windows = remember(usage, settings.bedtimeMinutes) {
+        usage?.let {
+            BedtimeInsights.windows(
+                sessions = it.sessions,
+                bedtimeMinutes = settings.bedtimeMinutes,
+                today = it.today.epochDay,
+                now = System.currentTimeMillis(),
+                exclude = setOf(context.packageName)
+            )
+        } ?: BedtimeWindows.EMPTY
+    }
+    val phoneDown = remember(sleepLog) { BedtimeInsights.phoneDown(sleepLog.orEmpty().map { it.phoneDownAt }) }
 
     // While bedtime focus is on, anything that loosens it (or changes its times) waits for the steps.
     fun changeBedtime(purpose: FlowPurpose, apply: () -> Unit) {
@@ -193,9 +220,13 @@ fun BedtimeScreen(
                             when {
                                 !on -> bypassGate.bedtime(FlowPurpose.BEDTIME_OFF) {
                                     onSettingsChange(settings.copy(bedtimeFocusEnabled = false))
+                                    BedtimeLog.get(context).recordFocusOff()
                                 }
                                 // Nothing to block yet: pick the apps first, and the toggle turns on with them.
-                                settings.bedtimeFocusApps.isEmpty() -> showAppPicker = true
+                                settings.bedtimeFocusApps.isEmpty() -> {
+                                    pickerTurnsOn = true
+                                    showAppPicker = true
+                                }
                                 else -> onSettingsChange(settings.copy(bedtimeFocusEnabled = true))
                             }
                         }
@@ -223,23 +254,39 @@ fun BedtimeScreen(
                     }
                 }
 
-                if (settings.bedtimeFocusApps.isEmpty()) {
+                val blocked = settings.bedtimeFocusApps.sorted()
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "No blocked apps yet. Add the ones that pull you in late at night.",
+                        text = if (blocked.isEmpty()) "Blocked apps" else "Blocked apps · ${blocked.size}",
+                        modifier = Modifier.weight(1f),
+                        color = Ink,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    SmallActionButton(
+                        text = if (blocked.isEmpty()) "Choose apps" else "Edit",
+                        onClick = {
+                            pickerTurnsOn = false
+                            showAppPicker = true
+                        }
+                    )
+                }
+                if (blocked.isEmpty()) {
+                    Text(
+                        text = "No blocked apps yet. Choose the ones that pull you in late at night.",
                         color = Slate,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        settings.bedtimeFocusApps.sorted().forEach { pkg ->
-                            BlockedAppRow(
-                                packageName = pkg,
-                                onRemove = {
-                                    changeBedtime(FlowPurpose.BEDTIME_EDIT) {
-                                        onSettingsChange(withApps(settings, settings.bedtimeFocusApps - pkg))
-                                    }
-                                }
+                        blocked.take(BLOCKED_PREVIEW).forEach { pkg -> BlockedAppRow(packageName = pkg) }
+                        if (blocked.size > BLOCKED_PREVIEW) {
+                            Text(
+                                text = "+${blocked.size - BLOCKED_PREVIEW} more",
+                                color = Slate,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(top = 2.dp)
                             )
                         }
                     }
@@ -251,7 +298,17 @@ fun BedtimeScreen(
                     fontSize = 11.sp,
                     lineHeight = 15.sp
                 )
-                SmallActionButton(text = "Add apps", onClick = { showAppPicker = true })
+            }
+
+            if (usageAccessGranted) {
+                SectionTitle("Around bedtime")
+                TypicalBedtimeCard(summary = phoneDown, bedtimeMinutes = settings.bedtimeMinutes)
+                AroundBedtimeCard(
+                    windows = windows,
+                    bedtimeMinutes = settings.bedtimeMinutes,
+                    blocked = settings.bedtimeFocusApps,
+                    onAppClick = { dialogApp = it }
+                )
             }
 
             SectionTitle("Reminder")
@@ -313,7 +370,7 @@ fun BedtimeScreen(
 
             SectionTitle("Sleep Log")
             SleepLogCard(
-                sleepLog = sleepLog,
+                sleepLog = sleepLog?.take(SLEEP_LOG_NIGHTS),
                 goalMinutes = settings.sleepGoalMinutes,
                 usageAccessGranted = usageAccessGranted,
                 onAllowUsageAccess = onAllowUsageAccess
@@ -322,25 +379,67 @@ fun BedtimeScreen(
 
         if (showAppPicker) {
             BlockedAppsPicker(
-                selected = settings.bedtimeFocusApps,
-                onAdd = { pkg -> onSettingsChange(withApps(settings, settings.bedtimeFocusApps + pkg)) },
-                onRemove = { pkg ->
-                    changeBedtime(FlowPurpose.BEDTIME_EDIT) {
-                        onSettingsChange(withApps(settings, settings.bedtimeFocusApps - pkg))
+                blocked = settings.bedtimeFocusApps,
+                lastNight = windows.lastNight?.before.orEmpty().associate { it.packageName to it.totalMillis },
+                weekAverage = windows.before.associate { it.packageName to it.averageMillis },
+                windowLabel = run {
+                    val start = Math.floorMod(settings.bedtimeMinutes - BedtimeInsights.SPAN_MINUTES, 24 * 60)
+                    "${formatMinutesOfDay(context, start)} – ${formatMinutesOfDay(context, settings.bedtimeMinutes)}"
+                },
+                onPick = { dialogApp = it },
+                onDone = {
+                    showAppPicker = false
+                    pickerTurnsOn = false
+                }
+            )
+        }
+        dialogApp?.let { pkg ->
+            val isBlocked = pkg in settings.bedtimeFocusApps
+            BedtimeAppDialog(
+                packageName = pkg,
+                bedtimeLabel = formatMinutesOfDay(context, settings.bedtimeMinutes),
+                wakeLabel = formatMinutesOfDay(context, settings.wakeMinutes),
+                averageMillis = windows.around.firstOrNull { it.packageName == pkg }?.averageMillis,
+                removalNeedsSteps = settings.bedtimeFocusEnabled,
+                // Each app is saved on its own. Adding is free; taking one off asks for the steps.
+                onSave = {
+                    if (!isBlocked) {
+                        onSettingsChange(withApps(settings, settings.bedtimeFocusApps + pkg, turnOn = pickerTurnsOn))
+                        pickerTurnsOn = false
                     }
                 },
-                onDone = { showAppPicker = false }
+                onRemove = if (isBlocked) {
+                    {
+                        changeBedtime(FlowPurpose.BEDTIME_EDIT) {
+                            onSettingsChange(withApps(settings, settings.bedtimeFocusApps - pkg))
+                        }
+                    }
+                } else {
+                    null
+                },
+                onDismiss = { dialogApp = null }
             )
         }
         BypassFlowHost(bypassGate)
     }
 }
 
-/** Saves [apps]; with none left there is nothing to block, so bedtime focus turns off too. */
-private fun withApps(settings: FocusSettings, apps: Set<String>): FocusSettings = settings.copy(
+/**
+ * Saves [apps]. With none left there is nothing to block, so bedtime focus is off; with [turnOn]
+ * it comes on together with the first apps.
+ */
+private fun withApps(settings: FocusSettings, apps: Set<String>, turnOn: Boolean = false): FocusSettings = settings.copy(
     bedtimeFocusApps = apps,
-    bedtimeFocusEnabled = settings.bedtimeFocusEnabled && apps.isNotEmpty()
+    bedtimeFocusEnabled = (settings.bedtimeFocusEnabled || turnOn) && apps.isNotEmpty()
 )
+
+private fun shortDuration(millis: Long): String = if (millis < 60_000L) "Under 1m" else formatDuration(millis)
+
+/** How many blocked apps the Bedtime card lists before "+N more". */
+private const val BLOCKED_PREVIEW = 5
+
+/** Nights listed in the sleep log; the averages above use every recorded night. */
+private const val SLEEP_LOG_NIGHTS = 7
 
 @Composable
 private fun TimeRow(
@@ -367,7 +466,7 @@ private fun TimeRow(
 }
 
 @Composable
-private fun BlockedAppRow(packageName: String, onRemove: () -> Unit) {
+private fun BlockedAppRow(packageName: String) {
     val info = rememberAppInfo(packageName)
     Row(
         modifier = Modifier
@@ -386,27 +485,27 @@ private fun BlockedAppRow(packageName: String, onRemove: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Text(
-            text = "Remove",
-            color = Red,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onRemove)
-                .padding(horizontal = 6.dp, vertical = 4.dp)
-        )
     }
 }
 
-/** Every launchable app with a checkmark for the ones blocked during bedtime. Adding is free; removing takes the steps. */
+/**
+ * Every launchable app, the ones used most around bedtime first, to pick one to block. Like the
+ * app-limit picker, tapping an app opens its own dialog where it is saved on its own.
+ */
 @Composable
 private fun BlockedAppsPicker(
-    selected: Set<String>,
-    onAdd: (String) -> Unit,
-    onRemove: (String) -> Unit,
+    blocked: Set<String>,
+    /** Time in the 2 hours before bedtime on the last finished night, by package. */
+    lastNight: Map<String, Long>,
+    /** Average time a night in the 2 hours before bedtime over the last week, by package. */
+    weekAverage: Map<String, Long>,
+    /** The 2-hour window as clock times, e.g. "9:00 PM – 11:00 PM". */
+    windowLabel: String,
+    onPick: (String) -> Unit,
     onDone: () -> Unit
 ) {
+    var showWeek by rememberSaveable { mutableStateOf(true) }
+    val shown = if (showWeek) weekAverage else lastNight
     val context = LocalContext.current
     val installed by produceState<List<Pair<String, String>>?>(null) {
         value = withContext(Dispatchers.IO) {
@@ -415,13 +514,19 @@ private fun BlockedAppsPicker(
                 .filter { it.activityInfo != null && it.activityInfo.packageName != context.packageName }
                 .distinctBy { it.activityInfo.packageName }
                 .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-                .sortedBy { it.second.lowercase() }
         }
     }
-    val apps = installed
     var query by remember { mutableStateOf("") }
-    val shown = remember(apps, query) {
-        apps.orEmpty().filter { (_, label) -> query.isBlank() || label.contains(query.trim(), ignoreCase = true) }
+    val listState = rememberLazyListState()
+    // Switching view reorders the list; start from the top so the biggest app is visible.
+    LaunchedEffect(showWeek) { listState.scrollToItem(0) }
+    val apps = remember(installed, shown, query) {
+        installed.orEmpty()
+            .filter { (_, label) -> query.isBlank() || label.contains(query.trim(), ignoreCase = true) }
+            .sortedWith(
+                compareByDescending<Pair<String, String>> { shown[it.first] ?: 0L }
+                    .thenBy { it.second.lowercase() }
+            )
     }
 
     Dialog(
@@ -436,21 +541,28 @@ private fun BlockedAppsPicker(
                 .navigationBarsPadding()
                 .padding(start = 20.dp, end = 20.dp, top = 12.dp)
         ) {
-            ScreenHeader(title = "Blocked apps", onBack = onDone)
+            ScreenHeader(title = "Add bedtime apps", onBack = onDone)
             FocusTextField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = "Search apps",
                 modifier = Modifier.padding(top = 6.dp, bottom = 10.dp)
             )
+            SegmentedToggle(
+                options = listOf("Last night", "7-night average"),
+                selectedIndex = if (showWeek) 1 else 0,
+                onSelect = { showWeek = it == 1 },
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
             Text(
                 text = when {
-                    apps == null -> "Loading apps…"
-                    selected.isEmpty() -> "Tap an app to block it from bedtime until wake-up"
-                    else -> "${selected.size} blocked during bedtime"
+                    installed == null -> "Loading apps…"
+                    showWeek -> "Average a night in the 2 hours before bedtime ($windowLabel), highest first"
+                    else -> "Last night in the 2 hours before bedtime ($windowLabel), highest first"
                 },
                 color = Slate,
                 fontSize = 12.sp,
+                lineHeight = 16.sp,
                 modifier = Modifier.padding(bottom = 10.dp)
             )
             LazyColumn(
@@ -459,14 +571,17 @@ private fun BlockedAppsPicker(
                     .weight(1f)
                     .padding(bottom = 16.dp)
                     .focusCard(),
+                state = listState,
                 contentPadding = PaddingValues(vertical = 6.dp)
             ) {
-                items(shown, key = { it.first }) { (pkg, _) ->
-                    val checked = pkg in selected
+                items(apps, key = { it.first }) { (pkg, _) ->
                     PickerRow(
                         packageName = pkg,
-                        checked = checked,
-                        onClick = { if (checked) onRemove(pkg) else onAdd(pkg) }
+                        lastNightMillis = lastNight[pkg] ?: 0L,
+                        weekAverageMillis = weekAverage[pkg] ?: 0L,
+                        showWeek = showWeek,
+                        blocked = pkg in blocked,
+                        onClick = { onPick(pkg) }
                     )
                 }
             }
@@ -475,7 +590,14 @@ private fun BlockedAppsPicker(
 }
 
 @Composable
-private fun PickerRow(packageName: String, checked: Boolean, onClick: () -> Unit) {
+private fun PickerRow(
+    packageName: String,
+    lastNightMillis: Long,
+    weekAverageMillis: Long,
+    showWeek: Boolean,
+    blocked: Boolean,
+    onClick: () -> Unit
+) {
     val info = rememberAppInfo(packageName)
     Row(
         modifier = Modifier
@@ -495,22 +617,30 @@ private fun PickerRow(packageName: String, checked: Boolean, onClick: () -> Unit
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            // The chosen view leads, and the other one sits beside it so the week's trend shows at a glance.
+            val week = "${shortDuration(weekAverageMillis)} a night"
+            val last = "${shortDuration(lastNightMillis)} last night"
             Text(
-                text = if (checked) "Blocked during bedtime" else "Not blocked",
-                color = if (checked) Forest else Slate,
-                fontSize = 12.sp
+                text = if (showWeek) "$week · $last" else "$last · $week",
+                color = if (blocked) Forest else Slate,
+                fontSize = 12.sp,
+                fontWeight = if (blocked) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(7.dp))
-                .background(if (checked) Forest else NeutralChip),
-            contentAlignment = Alignment.Center
-        ) {
-            if (checked) {
+        if (blocked) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(Forest),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(Icons.Rounded.Check, contentDescription = null, tint = CardWhite, modifier = Modifier.size(16.dp))
             }
+        } else {
+            Text(text = "›", color = Mist, fontSize = 20.sp)
         }
     }
 }

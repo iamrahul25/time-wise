@@ -22,7 +22,41 @@ enum class Measure {
     /** Time in the day's most used app. */
     TOP_APP,
     /** Screen time between midnight and 6 AM. */
-    NIGHT_USE
+    NIGHT_USE,
+    /** Bedtime habits, judged from the sleep log, nightly phone use and bedtime focus rather than daily totals. */
+    BEDTIME
+}
+
+/** What a bedtime badge looks at, see [BedtimeBadgeEngine]. */
+enum class BedtimeCheck {
+    /** Phone down within 15 minutes of the bedtime that was set. */
+    ON_TIME,
+    /** Phone down 30 or more minutes after bedtime. */
+    LATE,
+    /** Slept at least the sleep goal. */
+    SLEEP_GOAL,
+    /** At least 5 nights of a calendar week met the sleep goal. */
+    WEEK_SLEEP_GOAL,
+    /** At least 3 nights of a calendar week missed the sleep goal. */
+    WEEK_SLEEP_DEBT,
+    /** 30 or more minutes of phone use in the 2 hours after bedtime. */
+    AFTER_30,
+    /** At least 3 nights of a calendar week with an hour or more of phone use in the 2 hours after bedtime. */
+    WEEK_AFTER_60,
+    /** Bedtime focus on all night and no blocked app unlocked. */
+    VAULT,
+    /** A blocked app closed at bedtime instead of unlocked. */
+    KEPT,
+    /** Blocked apps unlocked 3 or more times in one night. */
+    BYPASS,
+    /** Bedtime focus turned off through the steps. */
+    FOCUS_OFF,
+    /** Phone down after 2 AM. */
+    VAMPIRE,
+    /** A week averaging a phone-down time at Bat or later. */
+    WEEK_BAT,
+    /** A week averaging a phone-down time at Ghost (after 4 AM). */
+    WEEK_GHOST
 }
 
 enum class Span { DAY, WEEK, MONTH }
@@ -44,6 +78,11 @@ sealed interface BadgeRule {
     /** A full week at least [percent]% below the full week before it. */
     data class WeeklyDrop(val percent: Int) : BadgeRule {
         override val measure: Measure get() = Measure.SCREEN_TIME
+    }
+
+    /** A bedtime habit. With [streakDays] > 1 it has to hold that many nights in a row. */
+    data class Bedtime(val check: BedtimeCheck, val streakDays: Int = 1) : BadgeRule {
+        override val measure: Measure get() = Measure.BEDTIME
     }
 }
 
@@ -67,6 +106,13 @@ enum class UsageBadge(val title: String, val description: String, val tier: Badg
     DIGITAL_MONK("Digital Monk", "Under 10 hours in a week", BadgeTier.LEGENDARY, BadgeRule.Limit(Measure.SCREEN_TIME, Span.WEEK, 10 * HOUR)),
     UNBREAKABLE("Unbreakable", "Under 3 hours every day, 30 days in a row", BadgeTier.LEGENDARY, BadgeRule.Limit(Measure.SCREEN_TIME, Span.DAY, 3 * HOUR, streakDays = 30)),
     OFFLINE_LEGEND("Offline Legend", "Under 60 hours in a calendar month", BadgeTier.LEGENDARY, BadgeRule.Limit(Measure.SCREEN_TIME, Span.MONTH, 60 * HOUR)),
+    // Bedtime, Hall of Fame. Judged by BedtimeBadgeEngine.
+    GOOD_NIGHT("Good Night", "Phone down within 15 minutes of your bedtime", BadgeTier.BRONZE, BadgeRule.Bedtime(BedtimeCheck.ON_TIME)),
+    PROMISE_KEPT("Promise Kept", "Closed a blocked app at bedtime instead of unlocking it", BadgeTier.BRONZE, BadgeRule.Bedtime(BedtimeCheck.KEPT)),
+    WELL_RESTED("Well Rested", "Met your sleep goal on 5 nights of a week", BadgeTier.SILVER, BadgeRule.Bedtime(BedtimeCheck.WEEK_SLEEP_GOAL)),
+    CLOCKWORK("Clockwork", "Phone down within 15 minutes of your bedtime, 7 nights in a row", BadgeTier.GOLD, BadgeRule.Bedtime(BedtimeCheck.ON_TIME, streakDays = 7)),
+    FULLY_CHARGED("Fully Charged", "Met your sleep goal 7 nights in a row", BadgeTier.GOLD, BadgeRule.Bedtime(BedtimeCheck.SLEEP_GOAL, streakDays = 7)),
+    VAULT_DOOR("Vault Door", "Bedtime focus on and no blocked app unlocked, 14 nights in a row", BadgeTier.LEGENDARY, BadgeRule.Bedtime(BedtimeCheck.VAULT, streakDays = 14)),
 
     COUCH_POTATO("Couch Potato", "6+ hours of screen time in a day", BadgeTier.MILD, BadgeRule.Limit(Measure.SCREEN_TIME, Span.DAY, 6 * HOUR)),
     RABBIT_HOLE("Rabbit Hole", "3+ hours in a single app in a day", BadgeTier.MILD, BadgeRule.Limit(Measure.TOP_APP, Span.DAY, 3 * HOUR)),
@@ -78,7 +124,17 @@ enum class UsageBadge(val title: String, val description: String, val tier: Badg
     ZOMBIE_MODE("Zombie Mode", "14+ hours of screen time in a day", BadgeTier.EXTREME, BadgeRule.Limit(Measure.SCREEN_TIME, Span.DAY, 14 * HOUR)),
     DOOM_SPIRAL("Doom Spiral", "8+ hours every day, 7 days in a row", BadgeTier.EXTREME, BadgeRule.Limit(Measure.SCREEN_TIME, Span.DAY, 8 * HOUR, streakDays = 7)),
     LOST_WEEK("Lost Week", "70+ hours in a week", BadgeTier.EXTREME, BadgeRule.Limit(Measure.SCREEN_TIME, Span.WEEK, 70 * HOUR)),
-    DIGITAL_PRISONER("Digital Prisoner", "300+ hours in a calendar month", BadgeTier.EXTREME, BadgeRule.Limit(Measure.SCREEN_TIME, Span.MONTH, 300 * HOUR));
+    DIGITAL_PRISONER("Digital Prisoner", "300+ hours in a calendar month", BadgeTier.EXTREME, BadgeRule.Limit(Measure.SCREEN_TIME, Span.MONTH, 300 * HOUR)),
+    // Bedtime, Hall of Shame. Judged by BedtimeBadgeEngine.
+    JUST_ONE_MORE("Just One More", "Phone down 30+ minutes after your bedtime", BadgeTier.MILD, BadgeRule.Bedtime(BedtimeCheck.LATE)),
+    SLEEP_DEBT("Sleep Debt", "Missed your sleep goal on 3 nights of a week", BadgeTier.MILD, BadgeRule.Bedtime(BedtimeCheck.WEEK_SLEEP_DEBT)),
+    SNOOZE_SCROLLER("Snooze Scroller", "30+ minutes on the phone in the 2 hours after bedtime", BadgeTier.MILD, BadgeRule.Bedtime(BedtimeCheck.AFTER_30)),
+    NIGHT_RAIDER("Night Raider", "1+ hour on the phone in the 2 hours after bedtime, on 3 nights of a week", BadgeTier.SEVERE, BadgeRule.Bedtime(BedtimeCheck.WEEK_AFTER_60)),
+    BYPASS_ARTIST("Bypass Artist", "Unlocked blocked apps 3+ times in one night", BadgeTier.SEVERE, BadgeRule.Bedtime(BedtimeCheck.BYPASS)),
+    BROKEN_PROMISE("Broken Promise", "Turned off bedtime focus through the steps", BadgeTier.SEVERE, BadgeRule.Bedtime(BedtimeCheck.FOCUS_OFF)),
+    BAT_WEEK("Bat Week", "A week averaging a phone-down time at Bat or later", BadgeTier.SEVERE, BadgeRule.Bedtime(BedtimeCheck.WEEK_BAT)),
+    VAMPIRE_HABIT("Vampire Habit", "Phone down after 2 AM, 7 nights in a row", BadgeTier.EXTREME, BadgeRule.Bedtime(BedtimeCheck.VAMPIRE, streakDays = 7)),
+    GHOST_WEEK("Ghost Week", "A week averaging a phone-down time after 4 AM", BadgeTier.EXTREME, BadgeRule.Bedtime(BedtimeCheck.WEEK_GHOST));
 
     val kind: BadgeKind get() = tier.kind
 }
@@ -124,6 +180,8 @@ object BadgeEngine {
                 }
                 .map { it.first }
                 .toSet()
+            // Needs the sleep log and bedtime events, which a day history doesn't hold: see BedtimeBadgeEngine.
+            is BadgeRule.Bedtime -> emptySet()
         }
     }
 
@@ -132,7 +190,11 @@ object BadgeEngine {
      * fall out of history, so a found streak overlapping a saved one is the same streak.
      */
     fun merge(badge: UsageBadge, saved: Set<Long>, found: Set<Long>): Set<Long> {
-        val streakDays = (badge.rule as? BadgeRule.Limit)?.streakDays ?: 1
+        val streakDays = when (val rule = badge.rule) {
+            is BadgeRule.Limit -> rule.streakDays
+            is BadgeRule.Bedtime -> rule.streakDays
+            is BadgeRule.WeeklyDrop -> 1
+        }
         if (streakDays <= 1) return saved + found
         val merged = saved.toMutableSet()
         for (start in found.sorted()) {
@@ -178,6 +240,7 @@ object BadgeEngine {
                 val current = (week.first..today).sumOf { byDay[it]?.totalMillis ?: 0L }
                 BadgeProgress(ProgressScope.THIS_WEEK, current, dropTarget(previous, rule.percent))
             }
+            is BadgeRule.Bedtime -> null
         }
     }
 
@@ -245,6 +308,7 @@ object BadgeEngine {
         Measure.UNLOCKS -> day.unlocks?.toLong()
         Measure.TOP_APP -> day.apps.maxOfOrNull { it.millis } ?: 0L
         Measure.NIGHT_USE -> day.hourlyMinutes.take(NIGHT_END_HOUR).sum() * 60_000L
+        Measure.BEDTIME -> null
     }
 
     private fun dropTarget(previous: Long, percent: Int): Long = previous * (100 - percent) / 100
