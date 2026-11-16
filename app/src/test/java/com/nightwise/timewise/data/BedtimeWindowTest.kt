@@ -22,6 +22,14 @@ class BedtimeWindowTest {
     }
 
     @Test
+    fun bedtimeFocusIsOnlyOnWithEveryStepSetUp() {
+        val on = FocusSettings(bedtimeFocusEnabled = true)
+        assertTrue(on.isBedtimeFocusOn(allStepsReady = true))
+        assertFalse(on.isBedtimeFocusOn(allStepsReady = false))
+        assertFalse(FocusSettings(bedtimeFocusEnabled = false).isBedtimeFocusOn(allStepsReady = true))
+    }
+
+    @Test
     fun sameDayWindowDoesNotWrap() {
         val settings = FocusSettings(bedtimeMinutes = 13 * 60, wakeMinutes = 15 * 60)
         assertTrue(settings.isBedtime(at(14, 0)))

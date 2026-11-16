@@ -66,6 +66,15 @@ class LimitLogicTest {
     }
 
     @Test
+    fun limitsAreOnlyEnforcedWhileTheToggleCanShowOn() {
+        val on = LimitsState(enabled = true, limits = listOf(AppLimit("whatsapp", 30)))
+        assertTrue(LimitLogic.isActive(on, allStepsReady = true))
+        // Setup unfinished: the toggle shows off and is locked, so nothing may be blocked.
+        assertFalse(LimitLogic.isActive(on, allStepsReady = false))
+        assertFalse(LimitLogic.isActive(on.copy(enabled = false), allStepsReady = true))
+    }
+
+    @Test
     fun onlyRaisingOrTurningOffNeedsTheSteps() {
         assertTrue(LimitLogic.isRaise(30, 35))
         assertFalse(LimitLogic.isRaise(30, 30))

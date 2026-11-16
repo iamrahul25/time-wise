@@ -1,5 +1,7 @@
 package com.nightwise.timewise.ui.screens
 
+import android.content.Context
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -142,6 +144,7 @@ private fun FrictionSetupScreen(
     onOpenAwareness: () -> Unit,
     onBack: () -> Unit
 ) {
+    val notice = rememberKeepNotice()
     val readyCount = FrictionStep.entries.count { FrictionLogic.isReady(it, content) }
     Column(
         modifier = Modifier
@@ -193,7 +196,7 @@ private fun FrictionSetupScreen(
 
         StepCard(FrictionStep.DREAM, content, "What you want to achieve. You'll type one of them out to keep going.") {
             content.dreams.forEach { dream ->
-                ListItemRow(text = dream.text, onRemove = { repository.removeDream(dream.id) })
+                ListItemRow(text = dream.text, onRemove = { notice.removed(repository.removeDream(dream.id)) })
             }
             AddRow(placeholder = "e.g. Run a marathon", onAdd = repository::addDream)
         }
@@ -216,8 +219,8 @@ private fun FrictionSetupScreen(
                 ListItemRow(
                     text = todo.text,
                     done = todo.done,
-                    onToggleDone = { repository.setTodoDone(todo.id, !todo.done) },
-                    onRemove = { repository.removeTodo(todo.id) }
+                    onToggleDone = { notice.finished(repository.setTodoDone(todo.id, !todo.done)) },
+                    onRemove = { notice.removed(repository.removeTodo(todo.id)) }
                 )
             }
             AddRow(placeholder = "e.g. Finish the report", onAdd = repository::addTodo)
@@ -349,6 +352,7 @@ private fun ListItemRow(
 /** Up to [FrictionLogic.FAITH_MAX_PHOTOS] open photos, with an add tile while there's room. */
 @Composable
 private fun FaithSetup(photos: List<LovedPhoto>, repository: FrictionRepository, onAddPhotos: () -> Unit) {
+    val notice = rememberKeepNotice()
     val tiles: List<LovedPhoto?> = if (photos.size < FrictionLogic.FAITH_MAX_PHOTOS) photos + null else photos
     tiles.chunked(PHOTO_COLUMNS).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -388,7 +392,7 @@ private fun FaithSetup(photos: List<LovedPhoto>, repository: FrictionRepository,
                                 .size(22.dp)
                                 .background(Color.Black.copy(alpha = 0.5f), CircleShape)
                                 .padding(4.dp)
-                                .clickable { repository.removePhoto(photo.id) }
+                                .clickable { notice.removed(repository.removePhoto(photo.id)) }
                         )
                     }
                 }
@@ -400,6 +404,7 @@ private fun FaithSetup(photos: List<LovedPhoto>, repository: FrictionRepository,
 
 @Composable
 private fun PeopleSetup(content: FrictionContent, repository: FrictionRepository, onAddPhotos: () -> Unit) {
+    val notice = rememberKeepNotice()
     var revealed by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<LovedPhoto?>(null) }
     var askPinFor by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -485,7 +490,7 @@ private fun PeopleSetup(content: FrictionContent, repository: FrictionRepository
                 val save = { repository.updatePhoto(photo.id) { it.copy(caption = caption.trim(), locked = locked) } }
                 if (locked && !content.hasPin) setPinThen = save else save()
             },
-            onDelete = { repository.removePhoto(photo.id) },
+            onDelete = { notice.removed(repository.removePhoto(photo.id)) },
             onDismiss = { editing = null }
         )
     }
@@ -516,7 +521,7 @@ private fun PeopleSetup(content: FrictionContent, repository: FrictionRepository
             title = { Text("Reset your PIN?") },
             text = { Text("Without the PIN, locked photos can't be shown. Resetting deletes your locked photos and removes the PIN. Other photos stay.") },
             confirmButton = {
-                TextButton(onClick = { repository.resetPin(); revealed = false; confirmForgot = false }) { Text("Delete & reset", color = Red) }
+                TextButton(onClick = { notice.removed(repository.resetPin()); revealed = false; confirmForgot = false }) { Text("Delete & reset", color = Red) }
             },
             dismissButton = { TextButton(onClick = { confirmForgot = false }) { Text("Cancel", color = Slate) } }
         )
@@ -611,6 +616,7 @@ private fun MusicSetup(tracks: List<MotivationTrack>, repository: FrictionReposi
 
 @Composable
 private fun TrackRow(track: MotivationTrack, repository: FrictionRepository, player: TrackPlayer) {
+    val notice = rememberKeepNotice()
     val playing = player.current?.id == track.id && player.isPlaying
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         TrackArt(repository.artFile(track), size = 44.dp)
@@ -646,8 +652,9 @@ private fun TrackRow(track: MotivationTrack, repository: FrictionRepository, pla
                 .size(28.dp)
                 .clip(CircleShape)
                 .clickable {
-                    if (player.current?.id == track.id) player.stop()
-                    repository.removeTrack(track.id)
+                    val removed = repository.removeTrack(track.id)
+                    notice.removed(removed)
+                    if (removed && player.current?.id == track.id) player.stop()
                 }
                 .padding(5.dp)
         )
@@ -666,4 +673,23 @@ private fun LinkText(text: String, onClick: () -> Unit) {
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold
     )
+}
+
+/** Tells the user a removal was refused because it would leave a step empty (see [FrictionRepository.removePhoto]). */
+private class KeepNotice(private val context: Context) {
+    fun removed(applied: Boolean) =
+        show(applied, "Each step needs at least one item. Add another before removing this one.")
+
+    fun finished(applied: Boolean) =
+        show(applied, "Keep at least one open to-do. Add another before finishing this one.")
+
+    private fun show(applied: Boolean, message: String) {
+        if (!applied) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+}
+
+@Composable
+private fun rememberKeepNotice(): KeepNotice {
+    val context = LocalContext.current
+    return remember(context) { KeepNotice(context) }
 }

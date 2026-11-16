@@ -44,6 +44,12 @@ object LimitLogic {
     /** Raising a limit is the only change that counts as dodging it; lowering or adding is free. */
     fun isRaise(oldMinutes: Int?, newMinutes: Int): Boolean = oldMinutes != null && newMinutes > oldMinutes
 
+    /**
+     * Whether limits are really being enforced. The toggle on the Focus tab can only be on once every
+     * step is set up, so a limit is never enforced while that toggle shows off.
+     */
+    fun isActive(state: LimitsState, allStepsReady: Boolean): Boolean = state.enabled && allStepsReady
+
     /** Turning limits off only needs the steps when there is something to dodge. */
     fun needsStepsToDisable(state: LimitsState): Boolean = state.enabled && state.limits.isNotEmpty()
 

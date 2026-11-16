@@ -65,6 +65,15 @@ object FrictionLogic {
     fun steps(content: FrictionContent, all: Boolean = false): List<FrictionStep> =
         if (all) FrictionStep.entries else FrictionStep.entries.filter { isReady(it, content) }
 
+    /**
+     * True when [after] leaves a step empty that [before] had set up. Once every step is set up, that would quietly
+     * switch daily app limits and bedtime focus off, so such a change is refused: the user can edit, not empty.
+     */
+    fun leavesStepEmpty(before: FrictionContent, after: FrictionContent): Boolean = allReady(before) && !allReady(after)
+
+    /** Every step has what it needs, which daily app limits require before they can be on. */
+    fun allReady(content: FrictionContent): Boolean = FrictionStep.entries.all { isReady(it, content) }
+
     fun isReady(step: FrictionStep, content: FrictionContent): Boolean = when (step) {
         FrictionStep.PHRASE, FrictionStep.AWARENESS -> true
         FrictionStep.PEOPLE -> content.photos.isNotEmpty()

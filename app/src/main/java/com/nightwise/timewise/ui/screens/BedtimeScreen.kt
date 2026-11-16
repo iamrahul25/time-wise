@@ -34,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,8 @@ import com.nightwise.timewise.data.FocusSettings
 import com.nightwise.timewise.data.SleepEntry
 import com.nightwise.timewise.data.bedtime.BedtimeInsights
 import com.nightwise.timewise.data.bedtime.BedtimeLog
+import com.nightwise.timewise.data.friction.FrictionLogic
+import com.nightwise.timewise.data.friction.FrictionRepository
 import com.nightwise.timewise.data.bedtime.BedtimeWindows
 import com.nightwise.timewise.data.usage.UsageSnapshot
 import com.nightwise.timewise.ui.components.BedtimeAppDialog
@@ -104,10 +107,16 @@ fun BedtimeScreen(
     onSettingsChange: (FocusSettings) -> Unit,
     onAllowNotifications: () -> Unit,
     onAllowUsageAccess: () -> Unit,
-    onEnableAccessibility: () -> Unit
+    onEnableAccessibility: () -> Unit,
+    onOpenFrictionSetup: () -> Unit
 ) {
     val context = LocalContext.current
     val bypassGate = rememberBypassGate()
+    // Bedtime focus needs every step set up. Until then it can't be turned on, and the card guides the setup.
+    val frictionContent by remember { FrictionRepository.get(context) }.content.collectAsState()
+    val stepsReady = FrictionLogic.allReady(frictionContent)
+    val focusOn = settings.isBedtimeFocusOn(stepsReady)
+    var showStepsGuide by remember { mutableStateOf(false) }
     var showAppPicker by remember { mutableStateOf(false) }
     /** Set when the picker was opened by the toggle, so saving apps also turns bedtime focus on. */
     var pickerTurnsOn by remember { mutableStateOf(false) }
@@ -130,7 +139,7 @@ fun BedtimeScreen(
 
     // While bedtime focus is on, anything that loosens it (or changes its times) waits for the steps.
     fun changeBedtime(purpose: FlowPurpose, apply: () -> Unit) {
-        if (settings.bedtimeFocusEnabled) bypassGate.bedtime(purpose, apply) else apply()
+        if (focusOn) bypassGate.bedtime(purpose, apply) else apply()
     }
 
     fun pickTime(initial: Int, onPicked: (Int) -> Unit) {
@@ -215,13 +224,15 @@ fun BedtimeScreen(
                         )
                     }
                     FocusToggle(
-                        checked = settings.bedtimeFocusEnabled,
+                        checked = focusOn,
                         onCheckedChange = { on ->
                             when {
                                 !on -> bypassGate.bedtime(FlowPurpose.BEDTIME_OFF) {
                                     onSettingsChange(settings.copy(bedtimeFocusEnabled = false))
                                     BedtimeLog.get(context).recordFocusOff()
                                 }
+                                // Every step has to be set up before it can be on: say what's missing and offer the setup.
+                                !stepsReady -> showStepsGuide = true
                                 // Nothing to block yet: pick the apps first, and the toggle turns on with them.
                                 settings.bedtimeFocusApps.isEmpty() -> {
                                     pickerTurnsOn = true
@@ -253,6 +264,8 @@ fun BedtimeScreen(
                         SmallActionButton(text = "Allow", onClick = onEnableAccessibility)
                     }
                 }
+
+                if (!stepsReady) StepsGuideCard(content = frictionContent, unlock = "Opening a blocked app at bedtime", onOpenSetup = onOpenFrictionSetup)
 
                 val blocked = settings.bedtimeFocusApps.sorted()
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -400,7 +413,7 @@ fun BedtimeScreen(
                 bedtimeLabel = formatMinutesOfDay(context, settings.bedtimeMinutes),
                 wakeLabel = formatMinutesOfDay(context, settings.wakeMinutes),
                 averageMillis = windows.around.firstOrNull { it.packageName == pkg }?.averageMillis,
-                removalNeedsSteps = settings.bedtimeFocusEnabled,
+                removalNeedsSteps = focusOn,
                 // Each app is saved on its own. Adding is free; taking one off asks for the steps.
                 onSave = {
                     if (!isBlocked) {
@@ -418,6 +431,15 @@ fun BedtimeScreen(
                     null
                 },
                 onDismiss = { dialogApp = null }
+            )
+        }
+        if (showStepsGuide) {
+            StepsGuideDialog(
+                content = frictionContent,
+                feature = "Bedtime focus",
+                unlock = "Opening a blocked app at bedtime",
+                onSetUp = onOpenFrictionSetup,
+                onDismiss = { showStepsGuide = false }
             )
         }
         BypassFlowHost(bypassGate)

@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Accessibility
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nightwise.timewise.data.FocusRepository
+import com.nightwise.timewise.data.friction.FrictionContent
 import com.nightwise.timewise.data.limits.LimitLogic
 import com.nightwise.timewise.data.limits.LimitsState
 import com.nightwise.timewise.data.usage.AppUsage
@@ -74,6 +76,7 @@ fun AppLimitsSection(
     state: LimitsState,
     todayApps: List<AppUsage>,
     accessibilityEnabled: Boolean,
+    frictionContent: FrictionContent,
     frictionReadySteps: Int,
     frictionTotalSteps: Int,
     onToggleEnabled: (Boolean) -> Unit,
@@ -86,6 +89,7 @@ fun AppLimitsSection(
 ) {
     val today = FocusRepository.currentEpochDay()
     val stepsReady = frictionReadySteps >= frictionTotalSteps
+    var showStepsGuide by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -104,22 +108,14 @@ fun AppLimitsSection(
                 )
             }
             FocusToggle(
-                checked = state.enabled && stepsReady,
-                onCheckedChange = onToggleEnabled,
-                enabled = stepsReady
+                checked = LimitLogic.isActive(state, stepsReady),
+                // Every step has to be set up before limits can be on: say what's missing and offer the setup.
+                onCheckedChange = { on -> if (on && !stepsReady) showStepsGuide = true else onToggleEnabled(on) }
             )
         }
 
         if (!stepsReady) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Finish setup to turn on · $frictionReadySteps of $frictionTotalSteps",
-                    color = Forest,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                SmallActionButton(text = "Set up steps", onClick = onOpenFrictionSetup)
-            }
+            StepsGuideCard(content = frictionContent, unlock = "Getting more time on a blocked app", onOpenSetup = onOpenFrictionSetup)
         }
 
         if (!accessibilityEnabled) AccessibilityNotice(onEnableAccessibility, onOpenAppInfo)
@@ -144,15 +140,16 @@ fun AppLimitsSection(
         OutlineButton(onClick = onAddLimit) {
             Text(text = "+ Add app limit", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
-        OutlineButton(onClick = onOpenFrictionSetup) {
-            Text(
-                text = "Edit extra-time steps · $frictionReadySteps of $frictionTotalSteps",
-                color = Ink,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
     }
+
+    NavRow(
+        icon = Icons.Rounded.Checklist,
+        tint = Forest,
+        tileColor = Mint,
+        title = "Extra-time steps",
+        subtitle = "$frictionReadySteps of $frictionTotalSteps steps ready · tap to edit",
+        onClick = onOpenFrictionSetup
+    )
 
     NavRow(
         icon = Icons.Rounded.Lightbulb,
@@ -162,6 +159,16 @@ fun AppLimitsSection(
         subtitle = "Facts, quotes and what cutting back gives you",
         onClick = onOpenAwareness
     )
+
+    if (showStepsGuide) {
+        StepsGuideDialog(
+            content = frictionContent,
+            feature = "Daily app limits",
+            unlock = "Getting more time on a blocked app",
+            onSetUp = onOpenFrictionSetup,
+            onDismiss = { showStepsGuide = false }
+        )
+    }
 }
 
 @Composable

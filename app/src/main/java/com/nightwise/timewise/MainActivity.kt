@@ -391,7 +391,8 @@ private fun TimeWiseApp(
                                 onSettingsChange = updateSettings,
                                 onAllowNotifications = actions.requestNotifications,
                                 onAllowUsageAccess = actions.requestUsageAccess,
-                                onEnableAccessibility = actions.requestAccessibility
+                                onEnableAccessibility = actions.requestAccessibility,
+                                onOpenFrictionSetup = { navigate(Route.FrictionSetup) }
                             )
 
                             Tab.Settings -> SettingsScreen(

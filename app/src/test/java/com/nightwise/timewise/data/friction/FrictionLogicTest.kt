@@ -62,9 +62,32 @@ class FrictionLogicTest {
     }
 
     @Test
+    fun onceEveryStepIsSetUpNoStepMayBeEmptied() {
+        val full = FrictionContent(
+            photos = listOf(LovedPhoto("p", "Mom", locked = false)),
+            faithPhotos = listOf(LovedPhoto("f", "", locked = false)),
+            dreams = listOf(Dream("d1", "Run a marathon"), Dream("d2", "Learn piano")),
+            todos = listOf(FrictionTodo("t", "Call grandma", done = false)),
+            tracks = listOf(MotivationTrack("m", "content://song", "Song", null, hasArt = false))
+        )
+        assertTrue(FrictionLogic.allReady(full))
+        // Dropping one of two dreams is an edit; dropping the last one empties the step.
+        assertFalse(FrictionLogic.leavesStepEmpty(full, full.copy(dreams = full.dreams.drop(1))))
+        assertTrue(FrictionLogic.leavesStepEmpty(full, full.copy(dreams = emptyList())))
+        assertTrue(FrictionLogic.leavesStepEmpty(full, full.copy(photos = emptyList())))
+        assertTrue(FrictionLogic.leavesStepEmpty(full, full.copy(tracks = emptyList())))
+        // Finishing the only open to-do leaves nothing to pick, which is the same as empty.
+        assertTrue(FrictionLogic.leavesStepEmpty(full, full.copy(todos = listOf(FrictionTodo("t", "Call grandma", done = true)))))
+        // While setup is unfinished nothing is protected yet, since nothing can be turned on.
+        val partial = full.copy(dreams = emptyList())
+        assertFalse(FrictionLogic.leavesStepEmpty(partial, partial.copy(photos = emptyList())))
+    }
+
+    @Test
     fun stepsWithoutContentAreSkipped() {
         assertEquals(listOf(FrictionStep.PHRASE, FrictionStep.AWARENESS), FrictionLogic.steps(FrictionContent()))
         assertEquals(FrictionStep.entries, FrictionLogic.steps(FrictionContent(), all = true))
+        assertFalse(FrictionLogic.allReady(FrictionContent()))
 
         val full = FrictionContent(
             photos = listOf(LovedPhoto("p", "Mom", locked = false)),

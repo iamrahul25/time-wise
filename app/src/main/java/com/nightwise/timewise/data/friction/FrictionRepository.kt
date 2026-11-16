@@ -65,15 +65,22 @@ class FrictionRepository private constructor(private val context: Context) {
     fun updatePhoto(id: String, transform: (LovedPhoto) -> LovedPhoto) =
         update { content -> content.copy(photos = content.photos.map { if (it.id == id) transform(it) else it }) }
 
-    fun removePhoto(id: String) {
-        val photo = (_content.value.photos + _content.value.faithPhotos).firstOrNull { it.id == id } ?: return
+    /**
+     * The removals below return false and change nothing when they would leave a step empty while every
+     * step is set up, see [FrictionLogic.leavesStepEmpty]. Editing is fine; emptying a step would be a way
+     * to switch limits and bedtime focus off without the steps.
+     */
+    fun removePhoto(id: String): Boolean {
+        val before = _content.value
+        val photo = (before.photos + before.faithPhotos).firstOrNull { it.id == id } ?: return true
+        val after = before.copy(
+            photos = before.photos.filter { it.id != id },
+            faithPhotos = before.faithPhotos.filter { it.id != id }
+        )
+        if (FrictionLogic.leavesStepEmpty(before, after)) return false
         photoFile(photo).delete()
-        update { content ->
-            content.copy(
-                photos = content.photos.filter { it.id != id },
-                faithPhotos = content.faithPhotos.filter { it.id != id }
-            )
-        }
+        update { after }
+        return true
     }
 
     fun addDream(text: String) {
@@ -82,7 +89,8 @@ class FrictionRepository private constructor(private val context: Context) {
         update { it.copy(dreams = it.dreams + Dream(newId(), trimmed)) }
     }
 
-    fun removeDream(id: String) = update { content -> content.copy(dreams = content.dreams.filter { it.id != id }) }
+    fun removeDream(id: String): Boolean =
+        change { it.copy(dreams = it.dreams.filter { dream -> dream.id != id }) }
 
     fun addTodo(text: String) {
         val trimmed = text.trim()
@@ -90,10 +98,10 @@ class FrictionRepository private constructor(private val context: Context) {
         update { it.copy(todos = it.todos + FrictionTodo(newId(), trimmed, done = false)) }
     }
 
-    fun setTodoDone(id: String, done: Boolean) =
-        update { content -> content.copy(todos = content.todos.map { if (it.id == id) it.copy(done = done) else it }) }
+    fun setTodoDone(id: String, done: Boolean): Boolean =
+        change { it.copy(todos = it.todos.map { todo -> if (todo.id == id) todo.copy(done = done) else todo }) }
 
-    fun removeTodo(id: String) = update { content -> content.copy(todos = content.todos.filter { it.id != id }) }
+    fun removeTodo(id: String): Boolean = change { it.copy(todos = it.todos.filter { todo -> todo.id != id }) }
 
     /** Keeps read access to picked audio and saves each file's cover art. Call off the main thread. */
     fun addTracks(uris: List<Uri>): Int {
@@ -123,13 +131,16 @@ class FrictionRepository private constructor(private val context: Context) {
         return added.size
     }
 
-    fun removeTrack(id: String) {
-        val track = _content.value.tracks.firstOrNull { it.id == id } ?: return
+    fun removeTrack(id: String): Boolean {
+        val before = _content.value
+        val track = before.tracks.firstOrNull { it.id == id } ?: return true
+        if (FrictionLogic.leavesStepEmpty(before, before.copy(tracks = before.tracks.filter { it.id != id }))) return false
         runCatching {
             context.contentResolver.releasePersistableUriPermission(Uri.parse(track.uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         artFile(track)?.delete()
         update { content -> content.copy(tracks = content.tracks.filter { it.id != id }) }
+        return true
     }
 
     fun checkPin(pin: String): Boolean {
@@ -149,10 +160,23 @@ class FrictionRepository private constructor(private val context: Context) {
     }
 
     /** For a forgotten PIN: deletes the locked photos along with it. */
-    fun resetPin() {
-        _content.value.photos.filter { it.locked }.forEach { photoFile(it).delete() }
+    fun resetPin(): Boolean {
+        val before = _content.value
+        val after = before.copy(photos = before.photos.filter { !it.locked }, hasPin = false)
+        if (FrictionLogic.leavesStepEmpty(before, after)) return false
+        before.photos.filter { it.locked }.forEach { photoFile(it).delete() }
         prefs.edit { remove(KEY_PIN_HASH) }
-        update { content -> content.copy(photos = content.photos.filter { !it.locked }, hasPin = false) }
+        update { after }
+        return true
+    }
+
+    /** Applies [transform] unless it would leave a step empty; returns whether it was applied. */
+    @Synchronized
+    private fun change(transform: (FrictionContent) -> FrictionContent): Boolean {
+        val before = _content.value
+        if (FrictionLogic.leavesStepEmpty(before, transform(before))) return false
+        update(transform)
+        return true
     }
 
     @Synchronized

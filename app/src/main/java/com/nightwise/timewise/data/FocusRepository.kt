@@ -28,6 +28,12 @@ data class FocusSettings(
     /** Planned sleep length, handling schedules that cross midnight. */
     val sleepGoalMinutes: Int get() = Math.floorMod(wakeMinutes - bedtimeMinutes, 24 * 60)
 
+    /**
+     * Whether bedtime focus is really on. It needs every step set up, so the toggle can only show on
+     * with all of them, and nothing is blocked while it shows off.
+     */
+    fun isBedtimeFocusOn(allStepsReady: Boolean): Boolean = bedtimeFocusEnabled && allStepsReady
+
     /** Whether [now] falls between bedtime and wake-up, handling schedules that cross midnight. */
     fun isBedtime(now: Long): Boolean {
         val calendar = Calendar.getInstance().apply { timeInMillis = now }

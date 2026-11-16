@@ -18,6 +18,8 @@ import com.nightwise.timewise.data.FocusRepository
 import com.nightwise.timewise.data.FocusSettings
 import com.nightwise.timewise.data.bedtime.BedtimeInsights
 import com.nightwise.timewise.data.bedtime.BedtimeLog
+import com.nightwise.timewise.data.friction.FrictionLogic
+import com.nightwise.timewise.data.friction.FrictionRepository
 import com.nightwise.timewise.data.limits.AppLimitRepository
 import com.nightwise.timewise.data.limits.LimitLogic
 import com.nightwise.timewise.data.usage.AppInfoCache
@@ -157,12 +159,14 @@ class AppLimitService : AccessibilityService() {
         val now = System.currentTimeMillis()
         val focus = FocusRepository.get(this)
         val settings = focus.settings.value
-        noteFocusNight(settings, now)
+        // Same rule as the toggle on the Bedtime tab: without every step set up, nothing is blocked.
+        val focusOn = settings.isBedtimeFocusOn(FrictionLogic.allReady(FrictionRepository.get(this).content.value))
+        noteFocusNight(settings, focusOn, now)
 
         val pkg = foreground ?: return UNLIMITED_CHECK_MS
         if (pkg == packageName) return UNLIMITED_CHECK_MS
         // Bedtime focus blocks the app outright; finishing the steps buys a short grant that runs out again.
-        val bedtimeGrantLeft = if (settings.bedtimeFocusEnabled && pkg in settings.bedtimeFocusApps && settings.isBedtime(now)) {
+        val bedtimeGrantLeft = if (focusOn && pkg in settings.bedtimeFocusApps && settings.isBedtime(now)) {
             (focus.bedtimeGrantUntil(pkg) - now).coerceAtLeast(0L)
         } else {
             null
@@ -178,8 +182,8 @@ class AppLimitService : AccessibilityService() {
     }
 
     /** Writes down each night bedtime focus was on and blocking, for the Vault Door badge. */
-    private fun noteFocusNight(settings: FocusSettings, now: Long) {
-        if (!settings.bedtimeFocusEnabled || settings.bedtimeFocusApps.isEmpty() || !settings.isBedtime(now)) return
+    private fun noteFocusNight(settings: FocusSettings, focusOn: Boolean, now: Long) {
+        if (!focusOn || settings.bedtimeFocusApps.isEmpty() || !settings.isBedtime(now)) return
         val night = BedtimeInsights.nightDay(now)
         if (night == lastFocusNight) return
         BedtimeLog.get(this).markFocusNight(night)
@@ -190,7 +194,9 @@ class AppLimitService : AccessibilityService() {
     private fun limitDelay(pkg: String, now: Long): Long? {
         val state = limits.state.value
         val limit = state.limitFor(pkg) ?: return null
-        if (!state.enabled) return null
+        // Same rule as the toggle on the Focus tab: off, or setup unfinished, means nothing is blocked.
+        val stepsReady = FrictionLogic.allReady(FrictionRepository.get(this).content.value)
+        if (!LimitLogic.isActive(state, stepsReady)) return null
 
         val today = FocusRepository.currentEpochDay(now)
         val used = screenTime.appTimeBetween(FocusRepository.startOfDayMillis(today), now, exclude = emptySet())

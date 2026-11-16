@@ -189,6 +189,7 @@ fun FocusRoute(
                 state = limits,
                 todayApps = todayApps,
                 accessibilityEnabled = accessibilityEnabled,
+                frictionContent = frictionContent,
                 frictionReadySteps = FrictionStep.entries.count { FrictionLogic.isReady(it, frictionContent) },
                 frictionTotalSteps = FrictionStep.entries.size,
                 onToggleEnabled = { on ->
