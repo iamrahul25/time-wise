@@ -65,6 +65,11 @@ class BypassGate {
         ask(PendingBypass(FlowPurpose.REMOVE, packageName, current, state.cooldownMinutes(packageName, today), apply))
     }
 
+    /** Loosening bedtime focus (turning it off, changing its times or removing an app) takes the steps. */
+    fun bedtime(purpose: FlowPurpose, apply: () -> Unit) {
+        ask(PendingBypass(purpose, null, null, LimitLogic.COOLDOWN_STEP_MINUTES, apply))
+    }
+
     /** Only a higher limit needs the steps; the same or a lower one is saved straight away. */
     fun save(state: LimitsState, packageName: String, minutes: Int, apply: () -> Unit) {
         val current = state.limitFor(packageName)?.minutes

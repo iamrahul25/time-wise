@@ -64,6 +64,7 @@ class FrictionLogicTest {
     @Test
     fun stepsWithoutContentAreSkipped() {
         assertEquals(listOf(FrictionStep.PHRASE, FrictionStep.AWARENESS), FrictionLogic.steps(FrictionContent()))
+        assertEquals(FrictionStep.entries, FrictionLogic.steps(FrictionContent(), all = true))
 
         val full = FrictionContent(
             photos = listOf(LovedPhoto("p", "Mom", locked = false)),

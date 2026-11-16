@@ -151,11 +151,32 @@ class AppLimitService : AccessibilityService() {
     private fun enforceForeground(): Long {
         val pkg = foreground ?: return UNLIMITED_CHECK_MS
         if (pkg == packageName) return UNLIMITED_CHECK_MS
-        val state = limits.state.value
-        val limit = state.limitFor(pkg) ?: return UNLIMITED_CHECK_MS
-        if (!state.enabled) return UNLIMITED_CHECK_MS
-
         val now = System.currentTimeMillis()
+
+        val focus = FocusRepository.get(this)
+        val settings = focus.settings.value
+        // Bedtime focus blocks the app outright; finishing the steps buys a short grant that runs out again.
+        val bedtimeGrantLeft = if (settings.bedtimeFocusEnabled && pkg in settings.bedtimeFocusApps && settings.isBedtime(now)) {
+            (focus.bedtimeGrantUntil(pkg) - now).coerceAtLeast(0L)
+        } else {
+            null
+        }
+        if (bedtimeGrantLeft == 0L) {
+            handler.post { startActivity(LimitReachedActivity.bedtimeIntent(this, pkg)) }
+            return RETRY_BLOCK_MS
+        }
+        val grantDelay = bedtimeGrantLeft?.let(LimitLogic::nextCheckDelay)
+
+        val limitDelay = limitDelay(pkg, now)
+        return listOfNotNull(limitDelay, grantDelay).minOrNull() ?: UNLIMITED_CHECK_MS
+    }
+
+    /** Daily limit check for [pkg]; null when the app has no limit or limits are off. */
+    private fun limitDelay(pkg: String, now: Long): Long? {
+        val state = limits.state.value
+        val limit = state.limitFor(pkg) ?: return null
+        if (!state.enabled) return null
+
         val today = FocusRepository.currentEpochDay(now)
         val used = screenTime.appTimeBetween(FocusRepository.startOfDayMillis(today), now, exclude = emptySet())
             .firstOrNull { it.packageName == pkg }?.millis ?: 0L

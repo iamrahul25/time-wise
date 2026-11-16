@@ -387,9 +387,11 @@ private fun TimeWiseApp(
                                 sleepLog = usage?.sleepLog?.take(7),
                                 notificationsGranted = permissions.notifications,
                                 usageAccessGranted = permissions.usageAccess,
+                                accessibilityEnabled = permissions.accessibility,
                                 onSettingsChange = updateSettings,
                                 onAllowNotifications = actions.requestNotifications,
-                                onAllowUsageAccess = actions.requestUsageAccess
+                                onAllowUsageAccess = actions.requestUsageAccess,
+                                onEnableAccessibility = actions.requestAccessibility
                             )
 
                             Tab.Settings -> SettingsScreen(

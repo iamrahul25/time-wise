@@ -58,8 +58,12 @@ object FrictionLogic {
 
     fun randomPhrase(random: Random = Random): String = PHRASES.random(random)
 
-    /** Steps the user goes through; ones that need content are skipped until it's set up. */
-    fun steps(content: FrictionContent): List<FrictionStep> = FrictionStep.entries.filter { isReady(it, content) }
+    /**
+     * Steps the user goes through. Ones that need content are skipped until it's set up, unless
+     * [all] is set: then every step is kept, and a step without content shows a written prompt instead.
+     */
+    fun steps(content: FrictionContent, all: Boolean = false): List<FrictionStep> =
+        if (all) FrictionStep.entries else FrictionStep.entries.filter { isReady(it, content) }
 
     fun isReady(step: FrictionStep, content: FrictionContent): Boolean = when (step) {
         FrictionStep.PHRASE, FrictionStep.AWARENESS -> true

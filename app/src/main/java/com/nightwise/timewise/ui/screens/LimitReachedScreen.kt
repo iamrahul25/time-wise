@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -119,7 +120,7 @@ import kotlin.random.Random
 private const val INTRO = -1
 
 /** Why the steps are showing: extra time for a blocked app, or someone trying to loosen a limit they set. */
-enum class FlowPurpose { EXTRA_TIME, TURN_OFF, REMOVE, RAISE }
+enum class FlowPurpose { EXTRA_TIME, TURN_OFF, REMOVE, RAISE, BEDTIME_EXTRA, BEDTIME_OFF, BEDTIME_EDIT }
 
 private data class FlowTexts(
     val title: String,
@@ -190,6 +191,33 @@ private fun flowTexts(
         finishLabel = "Raise limit",
         grantsTime = false
     )
+    FlowPurpose.BEDTIME_EXTRA -> FlowTexts(
+        title = "Bedtime focus",
+        body = "$appName is blocked while you're meant to be asleep. Finish the steps to get ${LimitLogic.EXTRA_MINUTES} more minutes with it.",
+        keepLabel = "Close $appName",
+        continueLabel = "I need ${LimitLogic.EXTRA_MINUTES} more minutes",
+        header = "$appName · ${LimitLogic.EXTRA_MINUTES} more minutes",
+        finishLabel = "Unlock ${LimitLogic.EXTRA_MINUTES} more minutes",
+        grantsTime = true
+    )
+    FlowPurpose.BEDTIME_OFF -> FlowTexts(
+        title = "Turn off bedtime focus?",
+        body = "You chose these apps to stay closed during your sleep. Turning bedtime focus off takes the same steps as extra time, with a $cooldownMinutes min wait.",
+        keepLabel = "Keep bedtime focus",
+        continueLabel = "I still want to turn it off",
+        header = "Turning off bedtime focus",
+        finishLabel = "Turn off bedtime focus",
+        grantsTime = false
+    )
+    FlowPurpose.BEDTIME_EDIT -> FlowTexts(
+        title = "Change bedtime focus?",
+        body = "Changing your bedtime, wake-up time or blocked apps takes the same steps as extra time, with a $cooldownMinutes min wait.",
+        keepLabel = "Keep it as it is",
+        continueLabel = "I still want to change it",
+        header = "Changing bedtime focus",
+        finishLabel = "Save changes",
+        grantsTime = false
+    )
 }
 
 private fun clock(totalSeconds: Int): String =
@@ -219,7 +247,8 @@ fun LimitReachedScreen(
     val info = packageName?.let { rememberAppInfo(it) }
     val appName = info?.label ?: "this app"
     val texts = flowTexts(purpose, appName, usedMillis, limitMinutes, extraMinutes, cooldownMinutes)
-    val steps = remember(flowKey) { FrictionLogic.steps(content) }
+    val bedtime = purpose.isBedtime()
+    val steps = remember(flowKey) { FrictionLogic.steps(content, all = bedtime) }
     var stage by rememberSaveable(flowKey) { mutableIntStateOf(INTRO) }
     var ready by remember(flowKey, stage) { mutableStateOf(false) }
     val phrase = rememberSaveable(flowKey) { FrictionLogic.randomPhrase() }
@@ -256,7 +285,7 @@ fun LimitReachedScreen(
                     else IconTile(icon = Icons.Rounded.Shield, tint = Forest, background = Mint, size = 64.dp, iconSize = 34.dp)
                 },
                 texts = texts,
-                showHourglass = purpose == FlowPurpose.EXTRA_TIME,
+                showHourglass = purpose == FlowPurpose.EXTRA_TIME || purpose == FlowPurpose.BEDTIME_EXTRA,
                 cooldownMinutes = cooldownMinutes,
                 stepCount = steps.size,
                 onCloseApp = onCloseApp,
@@ -301,14 +330,18 @@ fun LimitReachedScreen(
                 .padding(horizontal = 20.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            when (step) {
-                FrictionStep.PHRASE -> PhraseStep(phrase, code, onReady)
-                FrictionStep.PEOPLE -> PeopleStep(content.photos, photoFile, onCheckPin, onReady)
-                FrictionStep.FAITH -> FaithStep(content.faithPhotos, photoFile, onReady)
-                FrictionStep.DREAM -> DreamStep(content.dreams, onReady)
-                FrictionStep.AWARENESS -> AwarenessStep(awareness, onReady)
-                FrictionStep.TODOS -> TodosStep(content.openTodos, texts.grantsTime, onReady)
-                FrictionStep.MUSIC -> MusicStep(content.tracks, artFile, onReady)
+            key(stage) {
+                if (!FrictionLogic.isReady(step, content)) {
+                    PromptStep(step, onReady)
+                } else when (step) {
+                    FrictionStep.PHRASE -> PhraseStep(phrase, code, onReady)
+                    FrictionStep.PEOPLE -> PeopleStep(content.photos, photoFile, onCheckPin, onReady)
+                    FrictionStep.FAITH -> FaithStep(content.faithPhotos, photoFile, onReady)
+                    FrictionStep.DREAM -> DreamStep(content.dreams, onReady)
+                    FrictionStep.AWARENESS -> AwarenessStep(awareness, onReady)
+                    FrictionStep.TODOS -> TodosStep(content.openTodos, texts.grantsTime, onReady)
+                    FrictionStep.MUSIC -> MusicStep(content.tracks, artFile, onReady)
+                }
             }
         }
 
@@ -723,6 +756,43 @@ private fun PeopleStep(
             onSubmit = { pin -> onCheckPin(pin).also { if (it) unlocked = true } }
         )
     }
+}
+
+@Composable
+private fun FlowPurpose.isBedtime(): Boolean =
+    this == FlowPurpose.BEDTIME_EXTRA || this == FlowPurpose.BEDTIME_OFF || this == FlowPurpose.BEDTIME_EDIT
+
+private val PROMPT_TEXT = mapOf(
+    FrictionStep.PEOPLE to "Write the name of one person you want to be present for.",
+    FrictionStep.FAITH to "Write one thing you believe in or are grateful for.",
+    FrictionStep.DREAM to "Write one thing you want to achieve in your life.",
+    FrictionStep.TODOS to "Write the one thing you'll do once this time is over.",
+    FrictionStep.MUSIC to "Write the name of a song that gets you moving."
+)
+
+/**
+ * Stands in for a step the user hasn't set up yet, so a bedtime unlock still goes through every step.
+ * It asks for one written sentence, which is enough to continue.
+ */
+@Composable
+private fun PromptStep(step: FrictionStep, onReady: (Boolean) -> Unit) {
+    var typed by rememberSaveable(step) { mutableStateOf("") }
+    val done = typed.isNotBlank()
+    LaunchedEffect(done) { onReady(done) }
+
+    StepIntro(Icons.Rounded.Lightbulb, Purple, PurpleTint, step.title, PROMPT_TEXT[step].orEmpty())
+    FocusTextField(
+        value = typed,
+        onValueChange = { typed = it },
+        placeholder = "Write it here",
+        singleLine = false,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+    )
+    Text(
+        text = if (done) "Good. Continue when you're ready." else "Write one sentence to continue.",
+        color = if (done) Forest else Slate,
+        fontSize = 12.sp
+    )
 }
 
 @Composable

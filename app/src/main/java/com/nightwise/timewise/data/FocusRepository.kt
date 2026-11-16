@@ -20,10 +20,24 @@ data class FocusSettings(
     val wakeMinutes: Int = 7 * 60,
     val reminderLeadMinutes: Int = 15,
     /** Floating challenge timer over other apps. */
-    val floatingTimerEnabled: Boolean = true
+    val floatingTimerEnabled: Boolean = true,
+    /** Bedtime focus: the [bedtimeFocusApps] are blocked from bedtime until wake-up. */
+    val bedtimeFocusEnabled: Boolean = false,
+    val bedtimeFocusApps: Set<String> = emptySet()
 ) {
     /** Planned sleep length, handling schedules that cross midnight. */
     val sleepGoalMinutes: Int get() = Math.floorMod(wakeMinutes - bedtimeMinutes, 24 * 60)
+
+    /** Whether [now] falls between bedtime and wake-up, handling schedules that cross midnight. */
+    fun isBedtime(now: Long): Boolean {
+        val calendar = Calendar.getInstance().apply { timeInMillis = now }
+        val minute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
+        return if (bedtimeMinutes <= wakeMinutes) {
+            minute in bedtimeMinutes until wakeMinutes
+        } else {
+            minute >= bedtimeMinutes || minute < wakeMinutes
+        }
+    }
 }
 
 /** Day totals saved so history survives after Android prunes its usage events. */
@@ -58,8 +72,18 @@ class FocusRepository private constructor(context: Context) {
             putInt(KEY_WAKE_MINUTES, updated.wakeMinutes)
             putInt(KEY_REMINDER_LEAD, updated.reminderLeadMinutes)
             putBoolean(KEY_FLOATING_TIMER, updated.floatingTimerEnabled)
+            putBoolean(KEY_BEDTIME_FOCUS, updated.bedtimeFocusEnabled)
+            putStringSet(KEY_BEDTIME_FOCUS_APPS, updated.bedtimeFocusApps)
         }
         _settings.value = updated
+    }
+
+    /** Until when [packageName] may be used during bedtime focus, after its steps were finished. 0 when never. */
+    fun bedtimeGrantUntil(packageName: String): Long = prefs.getLong(GRANT_PREFIX + packageName, 0L)
+
+    @Synchronized
+    fun grantBedtimeTime(packageName: String, until: Long) {
+        prefs.edit { putLong(GRANT_PREFIX + packageName, until) }
     }
 
     fun storedDay(epochDay: Long): StoredDay? {
@@ -131,7 +155,9 @@ class FocusRepository private constructor(context: Context) {
             bedtimeMinutes = prefs.getInt(KEY_BEDTIME_MINUTES, defaults.bedtimeMinutes),
             wakeMinutes = prefs.getInt(KEY_WAKE_MINUTES, defaults.wakeMinutes),
             reminderLeadMinutes = prefs.getInt(KEY_REMINDER_LEAD, defaults.reminderLeadMinutes),
-            floatingTimerEnabled = prefs.getBoolean(KEY_FLOATING_TIMER, defaults.floatingTimerEnabled)
+            floatingTimerEnabled = prefs.getBoolean(KEY_FLOATING_TIMER, defaults.floatingTimerEnabled),
+            bedtimeFocusEnabled = prefs.getBoolean(KEY_BEDTIME_FOCUS, defaults.bedtimeFocusEnabled),
+            bedtimeFocusApps = prefs.getStringSet(KEY_BEDTIME_FOCUS_APPS, emptySet()).orEmpty().toSet()
         )
     }
 
@@ -153,6 +179,9 @@ class FocusRepository private constructor(context: Context) {
         private const val KEY_REMINDER_LEAD = "reminder_lead_minutes"
         private const val KEY_FLOATING_TIMER = "floating_timer_enabled"
         private const val KEY_LAST_BACKGROUND_SAVE = "last_background_save"
+        private const val KEY_BEDTIME_FOCUS = "bedtime_focus_enabled"
+        private const val KEY_BEDTIME_FOCUS_APPS = "bedtime_focus_apps"
+        private const val GRANT_PREFIX = "bedtime_grant_"
 
         @Volatile
         private var instance: FocusRepository? = null
