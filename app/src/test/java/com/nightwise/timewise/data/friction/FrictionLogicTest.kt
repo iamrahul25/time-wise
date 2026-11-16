@@ -27,6 +27,33 @@ class FrictionLogicTest {
     }
 
     @Test
+    fun codeLengthIsTwiceTheCooldownAndMixesCharacterKinds() {
+        assertEquals(10, FrictionLogic.codeLength(5))
+        assertEquals(30, FrictionLogic.codeLength(15))
+        repeat(50) {
+            val code = FrictionLogic.randomCode(FrictionLogic.codeLength(10))
+            assertEquals(20, code.length)
+            assertTrue(code.any(Char::isDigit))
+            assertTrue(code.any { !it.isLetterOrDigit() })
+        }
+        assertTrue(FrictionLogic.matchesCode(" aB3!x ", "aB3!x"))
+        assertFalse(FrictionLogic.matchesCode("ab3!x", "aB3!x"))
+    }
+
+    @Test
+    fun wordHintCompletesTheCurrentWordThenTheNext() {
+        assertEquals("I", FrictionLogic.nextWordHint("", phrase)?.word)
+        assertEquals("I ", FrictionLogic.nextWordHint("", phrase)?.typedAfter)
+        val partial = FrictionLogic.nextWordHint("I sti", phrase)
+        assertEquals("still", partial?.word)
+        assertEquals("I still ", partial?.typedAfter)
+        assertEquals("want", FrictionLogic.nextWordHint("I still ", phrase)?.word)
+        assertNull(FrictionLogic.nextWordHint("I stil want", phrase))
+        assertNull(FrictionLogic.nextWordHint(phrase, phrase))
+        assertEquals(phrase, FrictionLogic.nextWordHint("I still want to watch the screen and make my life usel", phrase)?.typedAfter)
+    }
+
+    @Test
     fun dreamMustMatchOneFromTheList() {
         val dreams = listOf(Dream("1", "Run a marathon"), Dream("2", "Start my own company"))
         assertEquals("2", FrictionLogic.matchingDream("start my own  company", dreams)?.id)

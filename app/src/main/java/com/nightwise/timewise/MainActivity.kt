@@ -212,7 +212,9 @@ private fun TimeWiseApp(
             }
         }
     }
-    val profile = remember(usage) { usage?.let { ProfileLogic.summarize(it.history, it.today.epochDay) } }
+    val profile = remember(usage, journeyState.installDay) {
+        usage?.let { ProfileLogic.summarize(it.history, it.today.epochDay, journeyState.installDay) }
+    }
     val appDailyAverages = remember(usage) {
         usage?.let { AppInsights.weeklyDailyAverages(it.history, it.today.epochDay) }.orEmpty()
     }

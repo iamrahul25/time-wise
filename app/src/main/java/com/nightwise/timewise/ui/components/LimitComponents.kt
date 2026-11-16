@@ -38,6 +38,7 @@ import com.nightwise.timewise.data.limits.LimitLogic
 import com.nightwise.timewise.ui.formatDuration
 import com.nightwise.timewise.ui.formatLimitMinutes
 import com.nightwise.timewise.ui.theme.Amber
+import com.nightwise.timewise.ui.theme.AmberTint
 import com.nightwise.timewise.ui.theme.Forest
 import com.nightwise.timewise.ui.theme.Ink
 import com.nightwise.timewise.ui.theme.Mint
@@ -52,6 +53,8 @@ fun LimitDialog(
     packageName: String,
     initialMinutes: Int,
     averageMillis: Long?,
+    /** Wait, in minutes, to raise or remove an existing limit; null for an app without one yet. */
+    changeCooldownMinutes: Int? = null,
     onSave: (Int) -> Unit,
     onRemove: (() -> Unit)?,
     onDismiss: () -> Unit
@@ -70,6 +73,19 @@ fun LimitDialog(
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
+                if (changeCooldownMinutes != null) {
+                    Text(
+                        text = "This is your promise to yourself. Raising or removing it means going through your steps and a $changeCooldownMinutes min wait. Lowering it is free.",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(AmberTint)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = Amber,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
                 if (averageMillis != null && averageMillis > 0) {
                     Text(
                         text = "You average ${formatDuration(averageMillis)} a day over the last 7 days.",

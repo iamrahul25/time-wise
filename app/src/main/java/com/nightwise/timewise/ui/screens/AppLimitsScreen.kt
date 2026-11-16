@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Accessibility
 import androidx.compose.material.icons.rounded.Lightbulb
-import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,6 +85,7 @@ fun AppLimitsSection(
     onOpenAwareness: () -> Unit
 ) {
     val today = FocusRepository.currentEpochDay()
+    val stepsReady = frictionReadySteps >= frictionTotalSteps
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -103,7 +103,23 @@ fun AppLimitsSection(
                     lineHeight = 17.sp
                 )
             }
-            FocusToggle(checked = state.enabled, onCheckedChange = onToggleEnabled)
+            FocusToggle(
+                checked = state.enabled && stepsReady,
+                onCheckedChange = onToggleEnabled,
+                enabled = stepsReady
+            )
+        }
+
+        if (!stepsReady) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Finish setup to turn on · $frictionReadySteps of $frictionTotalSteps",
+                    color = Forest,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                SmallActionButton(text = "Set up steps", onClick = onOpenFrictionSetup)
+            }
         }
 
         if (!accessibilityEnabled) AccessibilityNotice(onEnableAccessibility, onOpenAppInfo)
@@ -128,16 +144,16 @@ fun AppLimitsSection(
         OutlineButton(onClick = onAddLimit) {
             Text(text = "+ Add app limit", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
+        OutlineButton(onClick = onOpenFrictionSetup) {
+            Text(
+                text = "Edit extra-time steps · $frictionReadySteps of $frictionTotalSteps",
+                color = Ink,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 
-    NavRow(
-        icon = Icons.Rounded.Shield,
-        tint = Forest,
-        tileColor = Mint,
-        title = "Extra-time steps",
-        subtitle = "$frictionReadySteps of $frictionTotalSteps ready · photos, faith, dreams, to-dos, music",
-        onClick = onOpenFrictionSetup
-    )
     NavRow(
         icon = Icons.Rounded.Lightbulb,
         tint = Purple,
@@ -225,6 +241,7 @@ fun AppLimitPickerScreen(
     }
     var query by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<String?>(null) }
+    val bypassGate = rememberBypassGate()
     var weekAverage by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     // Switching metric reorders the list; start from the top so the highest app is visible.
@@ -292,11 +309,13 @@ fun AppLimitPickerScreen(
             packageName = pkg,
             initialMinutes = existing?.minutes ?: LimitLogic.DEFAULT_LIMIT_MINUTES,
             averageMillis = dailyAverages[pkg],
-            onSave = { onSetLimit(pkg, it) },
-            onRemove = existing?.let { { onRemoveLimit(pkg) } },
+            changeCooldownMinutes = existing?.let { state.cooldownMinutes(pkg, FocusRepository.currentEpochDay()) },
+            onSave = { minutes -> bypassGate.save(state, pkg, minutes) { onSetLimit(pkg, minutes) } },
+            onRemove = existing?.let { { bypassGate.remove(state, pkg) { onRemoveLimit(pkg) } } },
             onDismiss = { editing = null }
         )
     }
+    BypassFlowHost(bypassGate)
 }
 
 @Composable

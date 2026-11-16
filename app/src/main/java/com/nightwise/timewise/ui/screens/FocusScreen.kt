@@ -127,6 +127,7 @@ fun FocusRoute(
     val focusRepository = remember { FocusRepository.get(context) }
     val settings by focusRepository.settings.collectAsState()
     var editingLimit by remember { mutableStateOf<String?>(null) }
+    val bypassGate = rememberBypassGate()
     val scope = rememberCoroutineScope()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var progress by remember { mutableStateOf<ChallengeProgress?>(null) }
@@ -190,7 +191,10 @@ fun FocusRoute(
                 accessibilityEnabled = accessibilityEnabled,
                 frictionReadySteps = FrictionStep.entries.count { FrictionLogic.isReady(it, frictionContent) },
                 frictionTotalSteps = FrictionStep.entries.size,
-                onToggleEnabled = limitsRepository::setEnabled,
+                onToggleEnabled = { on ->
+                    if (on) limitsRepository.setEnabled(true)
+                    else bypassGate.turnOff(limits) { limitsRepository.setEnabled(false) }
+                },
                 onAddLimit = onOpenLimitPicker,
                 onEditLimit = { editingLimit = it },
                 onEnableAccessibility = onEnableAccessibility,
@@ -207,11 +211,13 @@ fun FocusRoute(
             packageName = pkg,
             initialMinutes = limits.limitFor(pkg)?.minutes ?: LimitLogic.DEFAULT_LIMIT_MINUTES,
             averageMillis = dailyAverages[pkg],
-            onSave = { limitsRepository.setLimit(pkg, it) },
-            onRemove = { limitsRepository.removeLimit(pkg) },
+            changeCooldownMinutes = limits.cooldownMinutes(pkg, FocusRepository.currentEpochDay()),
+            onSave = { minutes -> bypassGate.save(limits, pkg, minutes) { limitsRepository.setLimit(pkg, minutes) } },
+            onRemove = { bypassGate.remove(limits, pkg) { limitsRepository.removeLimit(pkg) } },
             onDismiss = { editingLimit = null }
         )
     }
+    BypassFlowHost(bypassGate)
 }
 
 @Composable

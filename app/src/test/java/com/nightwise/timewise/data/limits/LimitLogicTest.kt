@@ -44,6 +44,39 @@ class LimitLogicTest {
     }
 
     @Test
+    fun cooldownGrowsFiveMinutesWithEachExtraTime() {
+        assertEquals(5, LimitLogic.cooldownMinutes(0))
+        assertEquals(10, LimitLogic.cooldownMinutes(15))
+        assertEquals(15, LimitLogic.cooldownMinutes(30))
+        assertEquals(20, LimitLogic.cooldownMinutes(45))
+    }
+
+    @Test
+    fun cooldownIsPerAppAndMaxCoversEveryLimitedApp() {
+        val state = LimitsState(
+            limits = listOf(AppLimit("a", 30), AppLimit("b", 30)),
+            extrasDay = 100,
+            extras = mapOf("a" to 30, "b" to 15)
+        )
+        assertEquals(15, state.cooldownMinutes("a", 100))
+        assertEquals(10, state.cooldownMinutes("b", 100))
+        assertEquals(5, state.cooldownMinutes("a", 101))
+        assertEquals(15, state.maxCooldownMinutes(100))
+        assertEquals(5, LimitsState().maxCooldownMinutes(100))
+    }
+
+    @Test
+    fun onlyRaisingOrTurningOffNeedsTheSteps() {
+        assertTrue(LimitLogic.isRaise(30, 35))
+        assertFalse(LimitLogic.isRaise(30, 30))
+        assertFalse(LimitLogic.isRaise(30, 15))
+        assertFalse(LimitLogic.isRaise(null, 60))
+        assertTrue(LimitLogic.needsStepsToDisable(LimitsState(limits = listOf(AppLimit("a", 30)))))
+        assertFalse(LimitLogic.needsStepsToDisable(LimitsState()))
+        assertFalse(LimitLogic.needsStepsToDisable(LimitsState(enabled = false, limits = listOf(AppLimit("a", 30)))))
+    }
+
+    @Test
     fun extrasOnlyCountOnTheDayTheyWereEarned() {
         val state = LimitsState(extrasDay = 100, extras = mapOf("app" to 15))
         assertEquals(15, state.extraMinutes("app", 100))

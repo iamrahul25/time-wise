@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -264,6 +265,11 @@ class TrackPlayer(private val context: Context) {
         private set
     var failed by mutableStateOf(false)
         private set
+    /** Length and current spot of the track in milliseconds; both 0 until it's ready. */
+    var durationMs by mutableIntStateOf(0)
+        private set
+    var positionMs by mutableIntStateOf(0)
+        private set
     var onCompletion: (() -> Unit)? = null
 
     private var player: MediaPlayer? = null
@@ -282,6 +288,8 @@ class TrackPlayer(private val context: Context) {
             )
             setOnPreparedListener {
                 prepared = true
+                durationMs = it.duration.coerceAtLeast(0)
+                positionMs = 0
                 it.start()
                 this@TrackPlayer.isPlaying = true
             }
@@ -314,6 +322,21 @@ class TrackPlayer(private val context: Context) {
         if (isPlaying) toggle()
     }
 
+    /** Reads where the track is now; call it on a timer while it plays. */
+    fun refreshPosition() {
+        val p = player ?: return
+        if (prepared && !failed) positionMs = runCatching { p.currentPosition }.getOrDefault(positionMs)
+    }
+
+    /** Jumps forward or backward to [ms] from the start. */
+    fun seekTo(ms: Int) {
+        val p = player ?: return
+        if (!prepared || failed) return
+        val target = ms.coerceIn(0, durationMs)
+        runCatching { p.seekTo(target) }
+        positionMs = target
+    }
+
     fun stop() {
         release()
         current = null
@@ -324,6 +347,8 @@ class TrackPlayer(private val context: Context) {
         player = null
         prepared = false
         isPlaying = false
+        durationMs = 0
+        positionMs = 0
     }
 }
 

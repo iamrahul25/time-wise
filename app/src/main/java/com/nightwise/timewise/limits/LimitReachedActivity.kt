@@ -52,6 +52,7 @@ class LimitReachedActivity : ComponentActivity() {
                     usedMillis = usedMillis,
                     limitMinutes = limitsState.limitFor(blockedPackage)?.minutes,
                     extraMinutes = limitsState.extraMinutes(blockedPackage, today),
+                    cooldownMinutes = limitsState.cooldownMinutes(blockedPackage, today),
                     content = content,
                     flowKey = flowKey,
                     photoFile = friction::photoFile,

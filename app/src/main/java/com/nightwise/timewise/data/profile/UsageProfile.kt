@@ -67,34 +67,43 @@ object ProfileLogic {
     fun profileFor(dailyAverageMillis: Long): UsageProfile =
         UsageProfile.entries.first { dailyAverageMillis < it.maxDailyMillis }
 
-    /** Null until at least one finished day has data. Today is left out since it isn't over. */
-    fun summarize(history: List<DayUsage>, today: Long): ProfileSummary? {
+    /**
+     * Null until at least one finished day has data. Today is left out since it isn't over.
+     * The last 7 days always count, even from before install, so the profile shows straight away:
+     * Android keeps that much usage in full. Older days (the previous week, the 30-day average and
+     * the weekly bars) skip anything before [trackingStartDay], the install day, because Android
+     * only keeps a few days of events and what's left from earlier is cut short.
+     */
+    fun summarize(history: List<DayUsage>, today: Long, trackingStartDay: Long = Long.MIN_VALUE): ProfileSummary? {
         val byDay = history.associateBy { it.epochDay }
-        val week = tracked(byDay, today - WEEK, today)
+        val week = tracked(byDay, today - WEEK, today, Long.MIN_VALUE)
         if (week.isEmpty()) return null
         val average = week.meanMillis()
         return ProfileSummary(
             profile = profileFor(average),
             dailyAverageMillis = average,
             trackedDays = week.size,
-            previousDailyAverageMillis = tracked(byDay, today - 2 * WEEK, today - WEEK).takeIf { it.isNotEmpty() }?.meanMillis(),
-            thirtyDayAverageMillis = tracked(byDay, today - MONTH, today).takeIf { it.size > WEEK }?.meanMillis(),
-            weeklyStatuses = weeklyStatuses(byDay, today)
+            previousDailyAverageMillis = tracked(byDay, today - 2 * WEEK, today - WEEK, trackingStartDay)
+                .takeIf { it.isNotEmpty() }?.meanMillis(),
+            thirtyDayAverageMillis = tracked(byDay, today - MONTH, today, trackingStartDay).takeIf { it.size > WEEK }?.meanMillis(),
+            weeklyStatuses = weeklyStatuses(byDay, today, trackingStartDay)
         )
     }
 
     /** One status per past week with data, oldest first. Weeks are 7-day blocks ending today. */
-    private fun weeklyStatuses(byDay: Map<Long, DayUsage>, today: Long): List<WeekStatus> =
+    private fun weeklyStatuses(byDay: Map<Long, DayUsage>, today: Long, trackingStartDay: Long): List<WeekStatus> =
         (WEEKS_SHOWN downTo 1).mapNotNull { weeksAgo ->
             val from = today - WEEK * weeksAgo
-            tracked(byDay, from, from + WEEK).takeIf { it.isNotEmpty() }?.let { days ->
+            // The latest week is inside Android's full usage window, so it counts even from before install.
+            val start = if (weeksAgo == 1) Long.MIN_VALUE else trackingStartDay
+            tracked(byDay, from, from + WEEK, start).takeIf { it.isNotEmpty() }?.let { days ->
                 val average = days.meanMillis()
                 WeekStatus(weeksAgo, from, from + WEEK - 1, average, profileFor(average))
             }
         }
 
-    private fun tracked(byDay: Map<Long, DayUsage>, from: Long, until: Long): List<Long> =
-        (from until until).mapNotNull { byDay[it]?.totalMillis?.takeIf { millis -> millis > 0 } }
+    private fun tracked(byDay: Map<Long, DayUsage>, from: Long, until: Long, trackingStartDay: Long): List<Long> =
+        (maxOf(from, trackingStartDay) until until).mapNotNull { byDay[it]?.totalMillis?.takeIf { millis -> millis > 0 } }
 
     private fun List<Long>.meanMillis(): Long = sum() / size
 }

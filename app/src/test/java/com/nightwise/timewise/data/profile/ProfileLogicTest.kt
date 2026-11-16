@@ -52,6 +52,32 @@ class ProfileLogicTest {
     }
 
     @Test
+    fun daysBeforeTrackingStartedDontCount() {
+        // Days 86..92 are the older week: only 90..92 are after install, 86..89 are cut-short leftovers.
+        val history = (86..99L).map { day(it, if (it < 90) 0.5 else if (it <= 92) 3.5 else 2.0) }
+        val summary = ProfileLogic.summarize(history, today, trackingStartDay = 90)!!
+        assertEquals(listOf(2, 1), summary.weeklyStatuses.map { it.weeksAgo })
+        assertEquals((3.5 * hour).toLong(), summary.weeklyStatuses[0].dailyAverageMillis)
+        // The latest week uses all its days, and so does the headline 7-day profile.
+        assertEquals(2 * hour, summary.weeklyStatuses[1].dailyAverageMillis)
+        assertEquals(2 * hour, summary.dailyAverageMillis)
+    }
+
+    @Test
+    fun oneWeekOfDataShowsOneBar() {
+        val history = (today - 7 until today).map { day(it, 4.0) }
+        val summary = ProfileLogic.summarize(history, today, trackingStartDay = today)!!
+        assertEquals(listOf(1), summary.weeklyStatuses.map { it.weeksAgo })
+    }
+
+    @Test
+    fun profileShowsOnInstallDayFromEarlierUsage() {
+        val history = (today - 7 until today).map { day(it, 4.0) }
+        val summary = ProfileLogic.summarize(history, today, trackingStartDay = today)!!
+        assertEquals(4 * hour, summary.dailyAverageMillis)
+    }
+
+    @Test
     fun noSummaryWithoutFinishedDays() {
         assertNull(ProfileLogic.summarize(listOf(day(today, 3.0)), today))
     }

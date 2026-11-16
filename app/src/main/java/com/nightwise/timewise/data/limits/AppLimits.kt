@@ -16,6 +16,14 @@ data class LimitsState(
 
     fun extraMinutes(packageName: String, epochDay: Long): Int =
         if (epochDay == extrasDay) extras[packageName] ?: 0 else 0
+
+    /** Wait, in minutes, before the next extra time (or a change that dodges the limit) for one app. */
+    fun cooldownMinutes(packageName: String, epochDay: Long): Int =
+        LimitLogic.cooldownMinutes(extraMinutes(packageName, epochDay))
+
+    /** The longest wait among every app that has a limit; used for turning all limits off. */
+    fun maxCooldownMinutes(epochDay: Long): Int =
+        limits.maxOfOrNull { cooldownMinutes(it.packageName, epochDay) } ?: LimitLogic.COOLDOWN_STEP_MINUTES
 }
 
 object LimitLogic {
@@ -25,6 +33,19 @@ object LimitLogic {
     const val MAX_LIMIT_MINUTES = 8 * 60
     const val DEFAULT_LIMIT_MINUTES = 30
     val PRESET_MINUTES = listOf(15, 30, 60, 120)
+
+    /** Each extra time earned today for an app makes the next one wait this much longer. */
+    const val COOLDOWN_STEP_MINUTES = 5
+
+    /** 5 min for the first extra time of the day, then 10, 15, 20... */
+    fun cooldownMinutes(extraMinutesToday: Int): Int =
+        (extraMinutesToday / EXTRA_MINUTES + 1) * COOLDOWN_STEP_MINUTES
+
+    /** Raising a limit is the only change that counts as dodging it; lowering or adding is free. */
+    fun isRaise(oldMinutes: Int?, newMinutes: Int): Boolean = oldMinutes != null && newMinutes > oldMinutes
+
+    /** Turning limits off only needs the steps when there is something to dodge. */
+    fun needsStepsToDisable(state: LimitsState): Boolean = state.enabled && state.limits.isNotEmpty()
 
     private const val MINUTE_MS = 60_000L
     private const val WARN_BEFORE_MS = 5 * MINUTE_MS

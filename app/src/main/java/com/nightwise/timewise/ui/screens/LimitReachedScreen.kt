@@ -35,15 +35,19 @@ import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -55,6 +59,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -82,6 +87,7 @@ import com.nightwise.timewise.ui.components.OutlineButton
 import com.nightwise.timewise.ui.components.PinDialog
 import com.nightwise.timewise.ui.components.PrimaryButton
 import com.nightwise.timewise.ui.components.TrackArt
+import com.nightwise.timewise.ui.components.TrackPlayer
 import com.nightwise.timewise.ui.components.focusCard
 import com.nightwise.timewise.ui.components.rememberAppInfo
 import com.nightwise.timewise.ui.components.rememberStoredImage
@@ -107,36 +113,133 @@ import com.nightwise.timewise.ui.theme.Slate
 import com.nightwise.timewise.ui.theme.StepperBg
 import kotlinx.coroutines.delay
 import java.io.File
+import java.util.Locale
 import kotlin.random.Random
 
 private const val INTRO = -1
 
-/**
- * Shown over an app whose limit ran out. Closing the app is one tap; extra time means
- * going through every step, one at a time.
- */
-@Composable
-fun LimitReachedScreen(
-    packageName: String,
+/** Why the steps are showing: extra time for a blocked app, or someone trying to loosen a limit they set. */
+enum class FlowPurpose { EXTRA_TIME, TURN_OFF, REMOVE, RAISE }
+
+private data class FlowTexts(
+    val title: String,
+    val body: String,
+    val keepLabel: String,
+    val continueLabel: String,
+    val header: String,
+    val finishLabel: String,
+    val grantsTime: Boolean
+)
+
+private fun flowTexts(
+    purpose: FlowPurpose,
+    appName: String,
     usedMillis: Long,
     limitMinutes: Int?,
     extraMinutes: Int,
+    cooldownMinutes: Int
+): FlowTexts = when (purpose) {
+    FlowPurpose.EXTRA_TIME -> FlowTexts(
+        title = "Time's up",
+        body = buildString {
+            append("You've spent ${formatDuration(usedMillis)} on $appName today")
+            if (limitMinutes != null) {
+                append(". Your limit is ${formatLimitMinutes(limitMinutes)}")
+                if (extraMinutes > 0) append(", plus ${extraMinutes}m extra you already earned")
+            }
+            append(".")
+        },
+        keepLabel = "Close $appName",
+        continueLabel = "I need ${LimitLogic.EXTRA_MINUTES} more minutes",
+        header = "$appName · ${LimitLogic.EXTRA_MINUTES} more minutes",
+        finishLabel = "Unlock ${LimitLogic.EXTRA_MINUTES} more minutes",
+        grantsTime = true
+    )
+    FlowPurpose.TURN_OFF -> FlowTexts(
+        title = "Turn off daily limits?",
+        body = "You set these limits as a promise to yourself. Turning them all off takes the same steps as extra time, with a $cooldownMinutes min wait.",
+        keepLabel = "Keep my limits",
+        continueLabel = "I still want to turn them off",
+        header = "Turning off daily limits",
+        finishLabel = "Turn off limits",
+        grantsTime = false
+    )
+    FlowPurpose.REMOVE -> FlowTexts(
+        title = "Remove the $appName limit?",
+        body = buildString {
+            append("You promised yourself")
+            if (limitMinutes != null) append(" ${formatLimitMinutes(limitMinutes)} a day on $appName") else append(" a limit on $appName")
+            append(". Removing it takes the steps and a $cooldownMinutes min wait.")
+        },
+        keepLabel = "Keep the limit",
+        continueLabel = "I still want to remove it",
+        header = "Removing the $appName limit",
+        finishLabel = "Remove limit",
+        grantsTime = false
+    )
+    FlowPurpose.RAISE -> FlowTexts(
+        title = "Raise the $appName limit?",
+        body = buildString {
+            append("You promised yourself")
+            if (limitMinutes != null) append(" ${formatLimitMinutes(limitMinutes)} a day on $appName") else append(" a limit on $appName")
+            append(". Raising it takes the steps and a $cooldownMinutes min wait.")
+        },
+        keepLabel = "Keep my limit",
+        continueLabel = "I still want to raise it",
+        header = "Raising the $appName limit",
+        finishLabel = "Raise limit",
+        grantsTime = false
+    )
+}
+
+private fun clock(totalSeconds: Int): String =
+    String.format(Locale.US, "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+
+/**
+ * The steps that stand between the user and loosening a limit: extra time for a blocked app, or
+ * turning off, removing or raising a limit. A cooldown runs from the first tap and shows on every
+ * step; the last step waits for it to end. [packageName] is null when the change covers every app.
+ */
+@Composable
+fun LimitReachedScreen(
+    packageName: String?,
+    usedMillis: Long,
+    limitMinutes: Int?,
+    extraMinutes: Int,
+    cooldownMinutes: Int,
     content: FrictionContent,
     flowKey: Int,
     photoFile: (LovedPhoto) -> File,
     artFile: (MotivationTrack) -> File?,
     onCheckPin: (String) -> Boolean,
     onCloseApp: () -> Unit,
-    onGranted: () -> Unit
+    onGranted: () -> Unit,
+    purpose: FlowPurpose = FlowPurpose.EXTRA_TIME
 ) {
-    val info = rememberAppInfo(packageName)
+    val info = packageName?.let { rememberAppInfo(it) }
     val appName = info?.label ?: "this app"
+    val texts = flowTexts(purpose, appName, usedMillis, limitMinutes, extraMinutes, cooldownMinutes)
     val steps = remember(flowKey) { FrictionLogic.steps(content) }
     var stage by rememberSaveable(flowKey) { mutableIntStateOf(INTRO) }
     var ready by remember(flowKey, stage) { mutableStateOf(false) }
     val phrase = rememberSaveable(flowKey) { FrictionLogic.randomPhrase() }
+    val code = rememberSaveable(flowKey, cooldownMinutes) { FrictionLogic.randomCode(FrictionLogic.codeLength(cooldownMinutes)) }
     val awareness = remember(flowKey) { Awareness.pickOneOfEach() }
     val onReady: (Boolean) -> Unit = { ready = it }
+
+    // The wait starts when the user asks to go on and is measured on the wall clock, so it can't be skipped.
+    var startedAt by rememberSaveable(flowKey) { mutableLongStateOf(0L) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(startedAt) {
+        while (startedAt != 0L) {
+            now = System.currentTimeMillis()
+            delay(500L)
+        }
+    }
+    val waitSeconds = if (startedAt == 0L) cooldownMinutes * 60 else {
+        val leftMs = (cooldownMinutes * 60_000L - (now - startedAt)).coerceAtLeast(0L)
+        ((leftMs + 999L) / 1000L).toInt()
+    }
 
     Column(
         modifier = Modifier
@@ -148,14 +251,20 @@ fun LimitReachedScreen(
     ) {
         if (stage == INTRO) {
             Intro(
-                appIcon = { AppIcon(info, size = 64.dp) },
-                appName = appName,
-                usedMillis = usedMillis,
-                limitMinutes = limitMinutes,
-                extraMinutes = extraMinutes,
+                appIcon = {
+                    if (packageName != null) AppIcon(info, size = 64.dp)
+                    else IconTile(icon = Icons.Rounded.Shield, tint = Forest, background = Mint, size = 64.dp, iconSize = 34.dp)
+                },
+                texts = texts,
+                showHourglass = purpose == FlowPurpose.EXTRA_TIME,
+                cooldownMinutes = cooldownMinutes,
                 stepCount = steps.size,
                 onCloseApp = onCloseApp,
-                onWantMore = { stage = 0 }
+                onWantMore = {
+                    startedAt = System.currentTimeMillis()
+                    now = startedAt
+                    stage = 0
+                }
             )
             return@Column
         }
@@ -167,11 +276,21 @@ fun LimitReachedScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AppIcon(info, size = 28.dp)
+            if (packageName != null) AppIcon(info, size = 28.dp)
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = "$appName · ${LimitLogic.EXTRA_MINUTES} more minutes", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = texts.header, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(text = "Step ${stage + 1} of ${steps.size}", color = Slate, fontSize = 12.sp)
             }
+            Text(
+                text = if (waitSeconds > 0) "Wait ${clock(waitSeconds)}" else "Wait over",
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (waitSeconds > 0) AmberTint else Mint)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                color = if (waitSeconds > 0) Amber else Forest,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
         StepProgress(total = steps.size, current = stage, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
 
@@ -183,12 +302,12 @@ fun LimitReachedScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             when (step) {
-                FrictionStep.PHRASE -> PhraseStep(phrase, onReady)
+                FrictionStep.PHRASE -> PhraseStep(phrase, code, onReady)
                 FrictionStep.PEOPLE -> PeopleStep(content.photos, photoFile, onCheckPin, onReady)
                 FrictionStep.FAITH -> FaithStep(content.faithPhotos, photoFile, onReady)
                 FrictionStep.DREAM -> DreamStep(content.dreams, onReady)
                 FrictionStep.AWARENESS -> AwarenessStep(awareness, onReady)
-                FrictionStep.TODOS -> TodosStep(content.openTodos, onReady)
+                FrictionStep.TODOS -> TodosStep(content.openTodos, texts.grantsTime, onReady)
                 FrictionStep.MUSIC -> MusicStep(content.tracks, artFile, onReady)
             }
         }
@@ -198,14 +317,28 @@ fun LimitReachedScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (last && ready && waitSeconds > 0) {
+                Text(
+                    text = "All steps done. Stay here until the wait ends. It grows by ${LimitLogic.COOLDOWN_STEP_MINUTES} min each time, so the urge has time to pass.",
+                    color = Amber,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
+                )
+            }
             PrimaryButton(
-                text = if (last) "Unlock ${LimitLogic.EXTRA_MINUTES} more minutes" else "Next",
+                text = when {
+                    !last -> "Next"
+                    waitSeconds > 0 -> "Wait ${clock(waitSeconds)}"
+                    else -> texts.finishLabel
+                },
                 onClick = { if (last) onGranted() else stage++ },
-                enabled = ready,
+                enabled = ready && (!last || waitSeconds == 0),
                 showArrow = !last
             )
             Text(
-                text = "Close $appName instead",
+                text = texts.keepLabel,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .clickable(onClick = onCloseApp)
@@ -221,10 +354,9 @@ fun LimitReachedScreen(
 @Composable
 private fun Intro(
     appIcon: @Composable () -> Unit,
-    appName: String,
-    usedMillis: Long,
-    limitMinutes: Int?,
-    extraMinutes: Int,
+    texts: FlowTexts,
+    showHourglass: Boolean,
+    cooldownMinutes: Int,
     stepCount: Int,
     onCloseApp: () -> Unit,
     onWantMore: () -> Unit
@@ -241,31 +373,42 @@ private fun Intro(
         Spacer(modifier = Modifier.height(24.dp))
         Box(contentAlignment = Alignment.BottomEnd) {
             appIcon()
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(Red),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Rounded.HourglassBottom, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+            if (showHourglass) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Red),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.HourglassBottom, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                }
             }
         }
-        Text(text = "Time's up", color = Ink, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Text(text = texts.title, color = Ink, fontSize = 30.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Text(
-            text = buildString {
-                append("You've spent ${formatDuration(usedMillis)} on $appName today")
-                if (limitMinutes != null) {
-                    append(". Your limit is ${formatLimitMinutes(limitMinutes)}")
-                    if (extraMinutes > 0) append(", plus ${extraMinutes}m extra you already earned")
-                }
-                append(".")
-            },
+            text = texts.body,
             color = Slate,
             fontSize = 15.sp,
             lineHeight = 22.sp,
             textAlign = TextAlign.Center
         )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(AmberTint)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(text = "Why the pause?", color = Amber, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "You set this limit to protect your time. Most urges fade within a few minutes, so a short wait is often all it takes to change your mind. Each time you ask today the wait grows by ${LimitLogic.COOLDOWN_STEP_MINUTES} minutes.",
+                color = Amber,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -277,12 +420,12 @@ private fun Intro(
             Text(text = "— ${quote.source}", color = Mist, fontSize = 12.sp)
         }
         Spacer(modifier = Modifier.height(12.dp))
-        PrimaryButton(text = "Close $appName", onClick = onCloseApp)
+        PrimaryButton(text = texts.keepLabel, onClick = onCloseApp)
         OutlineButton(onClick = onWantMore) {
-            Text(text = "I need ${LimitLogic.EXTRA_MINUTES} more minutes", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = texts.continueLabel, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         Text(
-            text = "You'll go through $stepCount short steps first.",
+            text = "$stepCount short steps and a $cooldownMinutes min wait come first.",
             color = Mist,
             fontSize = 12.sp,
             textAlign = TextAlign.Center
@@ -342,14 +485,21 @@ private fun rememberCountdown(seconds: Int, running: Boolean = true): Int {
 }
 
 @Composable
-private fun PhraseStep(phrase: String, onReady: (Boolean) -> Unit) {
+private fun PhraseStep(phrase: String, code: String, onReady: (Boolean) -> Unit) {
     var typed by rememberSaveable { mutableStateOf("") }
+    var typedCode by rememberSaveable { mutableStateOf("") }
     val matches = FrictionLogic.matchesPhrase(typed, phrase)
     val typo = FrictionLogic.hasTypo(typed, phrase)
     val correct = FrictionLogic.correctPrefixLength(typed, phrase)
-    LaunchedEffect(matches) { onReady(matches) }
+    val hint = FrictionLogic.nextWordHint(typed, phrase)
+    val codeMatches = FrictionLogic.matchesCode(typedCode, code)
+    val codeTypo = typedCode.isNotEmpty() && !code.startsWith(typedCode)
+    LaunchedEffect(matches, codeMatches) { onReady(matches && codeMatches) }
 
-    StepIntro(Icons.Rounded.Keyboard, Red, RedTint, "Type it out", "Type this sentence to keep going. Read what you're saying as you type it.")
+    StepIntro(
+        Icons.Rounded.Keyboard, Red, RedTint, "Type it out",
+        "Type this sentence, then the code below. Tap the suggested word if you want a hand."
+    )
     Text(
         text = "“$phrase”",
         modifier = Modifier
@@ -373,6 +523,19 @@ private fun PhraseStep(phrase: String, onReady: (Boolean) -> Unit) {
             imeAction = ImeAction.Done
         )
     )
+    if (hint != null) {
+        Text(
+            text = "Next word: ${hint.word}  ›",
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(Mint)
+                .clickable { typed = hint.typedAfter }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            color = Forest,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
     StatusText(
         text = when {
             matches -> "Done. Was it worth saying?"
@@ -380,6 +543,41 @@ private fun PhraseStep(phrase: String, onReady: (Boolean) -> Unit) {
             else -> "$correct of ${phrase.length} characters"
         },
         done = matches
+    )
+
+    Text(text = "Now this code, ${code.length} characters", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+    Text(
+        text = code,
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusCard()
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        color = Ink,
+        fontSize = 20.sp,
+        lineHeight = 30.sp,
+        letterSpacing = 1.5.sp,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold
+    )
+    FocusTextField(
+        value = typedCode,
+        onValueChange = { typedCode = it },
+        placeholder = "Type the code exactly",
+        singleLine = false,
+        isError = codeTypo,
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false,
+            imeAction = ImeAction.Done
+        )
+    )
+    StatusText(
+        text = when {
+            codeMatches -> "Code matches."
+            codeTypo -> "Not quite. Letters are case sensitive, so check each character."
+            else -> "${typedCode.length} of ${code.length} characters"
+        },
+        done = codeMatches
     )
 }
 
@@ -584,12 +782,16 @@ private fun AwarenessStep(items: List<AwarenessItem>, onReady: (Boolean) -> Unit
 }
 
 @Composable
-private fun TodosStep(todos: List<FrictionTodo>, onReady: (Boolean) -> Unit) {
+private fun TodosStep(todos: List<FrictionTodo>, grantsTime: Boolean, onReady: (Boolean) -> Unit) {
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = todos.firstOrNull { it.id == selectedId }
     LaunchedEffect(selected) { onReady(selected != null) }
 
-    StepIntro(Icons.Rounded.Checklist, Blue, BlueTint, "Your to-dos", "These are still waiting. Pick the one you'll do when these ${LimitLogic.EXTRA_MINUTES} minutes are up.")
+    StepIntro(
+        Icons.Rounded.Checklist, Blue, BlueTint, "Your to-dos",
+        if (grantsTime) "These are still waiting. Pick the one you'll do when these ${LimitLogic.EXTRA_MINUTES} minutes are up."
+        else "These are still waiting. Pick the one you'll do with your time instead."
+    )
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -620,7 +822,9 @@ private fun TodosStep(todos: List<FrictionTodo>, onReady: (Boolean) -> Unit) {
         }
     }
     StatusText(
-        text = selected?.let { "Next up, in ${LimitLogic.EXTRA_MINUTES} minutes: ${it.text}" } ?: "Choose one",
+        text = selected?.let {
+            if (grantsTime) "Next up, in ${LimitLogic.EXTRA_MINUTES} minutes: ${it.text}" else "Next up: ${it.text}"
+        } ?: "Choose one",
         done = selected != null
     )
 }
@@ -651,6 +855,7 @@ private fun MusicStep(tracks: List<MotivationTrack>, artFile: (MotivationTrack) 
         TrackArt(artFile(track), size = 200.dp)
         Text(text = track.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         track.artist?.let { Text(text = it, color = Slate, fontSize = 13.sp) }
+        SeekBar(player)
         Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
             if (tracks.size > 1) {
                 PlayerButton(Icons.Rounded.SkipPrevious, "Previous") { index = (index - 1 + tracks.size) % tracks.size }
@@ -683,6 +888,44 @@ private fun MusicStep(tracks: List<MotivationTrack>, artFile: (MotivationTrack) 
         },
         done = seconds == 0
     )
+}
+
+/** Drag to jump forward or backward in the playing track. */
+@Composable
+private fun SeekBar(player: TrackPlayer) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(player.isPlaying) {
+        while (player.isPlaying) {
+            player.refreshPosition()
+            delay(500L)
+        }
+    }
+    val duration = player.durationMs.coerceAtLeast(1)
+    val shown = (dragging ?: player.positionMs.toFloat()).coerceIn(0f, duration.toFloat())
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Slider(
+            value = shown,
+            onValueChange = { dragging = it },
+            onValueChangeFinished = {
+                dragging?.let { player.seekTo(it.toInt()) }
+                dragging = null
+            },
+            valueRange = 0f..duration.toFloat(),
+            enabled = player.durationMs > 0 && !player.failed,
+            colors = SliderDefaults.colors(
+                thumbColor = Forest,
+                activeTrackColor = Forest,
+                inactiveTrackColor = StepperBg,
+                disabledThumbColor = CardBorder,
+                disabledActiveTrackColor = CardBorder,
+                disabledInactiveTrackColor = StepperBg
+            )
+        )
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(text = clock(shown.toInt() / 1000), color = Slate, fontSize = 12.sp)
+            Text(text = clock(player.durationMs / 1000), color = Slate, fontSize = 12.sp)
+        }
+    }
 }
 
 @Composable

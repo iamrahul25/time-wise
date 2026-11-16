@@ -70,6 +70,44 @@ object FrictionLogic {
         FrictionStep.MUSIC -> content.tracks.isNotEmpty()
     }
 
+    /** A longer wait means a longer code: twice the minutes (5 min -> 10 characters, 10 -> 20...). */
+    fun codeLength(cooldownMinutes: Int): Int = cooldownMinutes * 2
+
+    // Look-alikes (0/O, 1/l/I) are left out so a code is never unfair to type.
+    private const val CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    private const val CODE_DIGITS = "23456789"
+    private const val CODE_SYMBOLS = "!@#$%&*?+=-"
+
+    /** Random letters, digits and symbols, always with at least one digit and one symbol. */
+    fun randomCode(length: Int, random: Random = Random): String {
+        val size = length.coerceAtLeast(3)
+        val pool = CODE_LETTERS + CODE_DIGITS + CODE_SYMBOLS
+        val chars = mutableListOf(CODE_DIGITS.random(random), CODE_SYMBOLS.random(random))
+        repeat(size - chars.size) { chars += pool.random(random) }
+        return chars.shuffled(random).joinToString("")
+    }
+
+    /** Codes are case-sensitive; only stray spaces are forgiven. */
+    fun matchesCode(typed: String, code: String): Boolean = typed.trim() == code
+
+    /** The word to type next, and the text to fill in if the user taps it. */
+    data class WordHint(val word: String, val typedAfter: String)
+
+    /**
+     * Completes the word being typed (or starts the next one) as long as nothing typed so far is wrong.
+     * Null when the phrase is done or there's a typo to fix first.
+     */
+    fun nextWordHint(typed: String, phrase: String): WordHint? {
+        if (hasTypo(typed, phrase) || matchesPhrase(typed, phrase)) return null
+        val done = correctPrefixLength(typed, phrase)
+        if (done >= phrase.length) return null
+        val wordStart = if (done > 0 && phrase[done - 1] != ' ') phrase.lastIndexOf(' ', done - 1) + 1 else done
+        val wordEnd = phrase.indexOf(' ', done).let { if (it < 0) phrase.length else it }
+        val word = phrase.substring(wordStart, wordEnd)
+        val after = phrase.substring(0, wordEnd) + if (wordEnd < phrase.length) " " else ""
+        return WordHint(word, after)
+    }
+
     /** Case, extra spaces and end punctuation don't matter; every word does. */
     fun normalize(text: String): String =
         text.trim().lowercase().replace(WHITESPACE, " ").trimEnd('.', '!', '?').trim()
